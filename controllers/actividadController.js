@@ -61,11 +61,22 @@ const obtenerActividad = async (req, res) => {
 // POST /api/actividades - publicar nueva actividad (US-10, básico por ahora)
 const crearActividad = async (req, res) => {
   try {
-    const nuevaActividad = await Actividad.create({
+    const datos = {
       ...req.body,
       organizadorId: req.usuario.userId,
       cuposDisponibles: req.body.cupoMaximo,
-    });
+    };
+
+    const coords = datos.ubicacion?.coordinates;
+    if (!Array.isArray(coords) || coords.length !== 2) {
+      delete datos.ubicacion;
+    }
+
+    if (datos.modalidad === "presencial" && !datos.ubicacion) {
+      return res.status(400).json({ mensaje: "Las actividades presenciales requieren ubicación" });
+    }
+
+    const nuevaActividad = await Actividad.create(datos);
     res.status(201).json(nuevaActividad);
   } catch (error) {
     console.error("Error creando actividad:", error);
@@ -73,4 +84,15 @@ const crearActividad = async (req, res) => {
   }
 };
 
-module.exports = { buscarActividades, obtenerActividad, crearActividad };
+// GET /api/actividades/mis-actividades
+const misActividades = async (req, res) => {
+  try {
+    const actividades = await Actividad.find({ organizadorId: req.usuario.userId }).sort({ createdAt: -1 });
+    res.status(200).json({ total: actividades.length, actividades });
+  } catch (error) {
+    console.error("Error obteniendo mis actividades:", error);
+    res.status(500).json({ mensaje: "Error interno del servidor" });
+  }
+};
+
+module.exports = { buscarActividades, obtenerActividad, crearActividad, misActividades };

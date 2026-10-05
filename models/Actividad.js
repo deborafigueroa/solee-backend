@@ -41,13 +41,14 @@ const actividadSchema = new mongoose.Schema({
     required: true,
     min: 0,
   },
-  ubicacion: {
+    ubicacion: {
     type: {
       type: String,
       enum: ["Point"],
     },
     coordinates: {
       type: [Number], // [longitud, latitud]
+      default: undefined,
     },
   },
   direccionTexto: {
