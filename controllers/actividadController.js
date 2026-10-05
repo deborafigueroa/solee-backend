@@ -63,6 +63,7 @@ const crearActividad = async (req, res) => {
   try {
     const nuevaActividad = await Actividad.create({
       ...req.body,
+      organizadorId: req.usuario.userId,
       cuposDisponibles: req.body.cupoMaximo,
     });
     res.status(201).json(nuevaActividad);
