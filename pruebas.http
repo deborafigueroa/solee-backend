@@ -74,7 +74,7 @@ GET {{baseUrl}}/actividades?disciplina=cerámica&modalidad=presencial&nivel=prin
 # @name crear
 POST {{baseUrl}}/actividades
 Content-Type: application/json
-Authorization: Bearer {{loginOrg.response.body.token}}
+Authorization: Bearer {{loginOrg.response.body.$.token}}
 
 {
   "titulo": "Taller de cerámica para principiantes",
@@ -98,7 +98,7 @@ Authorization: Bearer {{loginOrg.response.body.token}}
 ### Crear actividad VIRTUAL sin ubicacion -> esperado 201 (valida que 2dsphere no se rompa)
 POST {{baseUrl}}/actividades
 Content-Type: application/json
-Authorization: Bearer {{loginOrg.response.body.token}}
+Authorization: Bearer {{loginOrg.response.body.$.token}}
 
 {
   "titulo": "Escritura creativa online",
@@ -119,7 +119,7 @@ GET {{baseUrl}}/actividades/{{crear.response.body._id}}
 
 ### Mis actividades como organizador -> esperado 200
 GET {{baseUrl}}/actividades/mis-actividades
-Authorization: Bearer {{loginOrg.response.body.token}}
+Authorization: Bearer {{loginOrg.response.body.$.token}}
 
 ############################################################
 # 4. CASOS NEGATIVOS - seguridad
@@ -130,12 +130,12 @@ GET {{baseUrl}}/actividades/mis-actividades
 
 ### Mis actividades como participante -> esperado 403
 GET {{baseUrl}}/actividades/mis-actividades
-Authorization: Bearer {{loginPart.response.body.token}}
+Authorization: Bearer {{loginPart.response.body.$.token}}
 
 ### Crear actividad como participante -> esperado 403
 POST {{baseUrl}}/actividades
 Content-Type: application/json
-Authorization: Bearer {{loginPart.response.body.token}}
+Authorization: Bearer {{loginPart.response.body.$.token}}
 
 {
   "titulo": "No deberia crearse"
@@ -157,7 +157,7 @@ Authorization: Bearer token-inventado-123
 ### Faltan campos obligatorios -> esperado 400
 POST {{baseUrl}}/actividades
 Content-Type: application/json
-Authorization: Bearer {{loginOrg.response.body.token}}
+Authorization: Bearer {{loginOrg.response.body.$.token}}
 
 {
   "titulo": "Actividad incompleta"
@@ -166,7 +166,7 @@ Authorization: Bearer {{loginOrg.response.body.token}}
 ### Disciplina fuera del enum -> esperado 400
 POST {{baseUrl}}/actividades
 Content-Type: application/json
-Authorization: Bearer {{loginOrg.response.body.token}}
+Authorization: Bearer {{loginOrg.response.body.$.token}}
 
 {
   "titulo": "Clase de cocina",
@@ -185,7 +185,7 @@ Authorization: Bearer {{loginOrg.response.body.token}}
 ### Precio negativo y cupo 0 -> esperado 400
 POST {{baseUrl}}/actividades
 Content-Type: application/json
-Authorization: Bearer {{loginOrg.response.body.token}}
+Authorization: Bearer {{loginOrg.response.body.$.token}}
 
 {
   "titulo": "Datos invalidos",
@@ -204,7 +204,7 @@ Authorization: Bearer {{loginOrg.response.body.token}}
 ### Titulo sobre 120 caracteres -> esperado 400
 POST {{baseUrl}}/actividades
 Content-Type: application/json
-Authorization: Bearer {{loginOrg.response.body.token}}
+Authorization: Bearer {{loginOrg.response.body.$.token}}
 
 {
   "titulo": "Este titulo es demasiado largo a proposito para comprobar que la validacion maxlength de ciento veinte caracteres funciona bien",
@@ -229,3 +229,105 @@ GET {{baseUrl}}/actividades/000000000000000000000000
 
 ### Obtener actividad con ID mal formado -> esperado 400 (500 si no esta controlado)
 GET {{baseUrl}}/actividades/abc123
+
+
+
+############################################################
+# 7. EDITAR Y ELIMINAR (US-11)
+# Orden: loginOrg, registro y login del colectivo, crearParaEditar y luego las pruebas.
+############################################################
+
+### Registrar una organizacion para probar el 403 -> esperado 201 (409 si ya existe)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "nombre": "Colectivo Demo",
+  "email": "colectivo.demo@solee.com",
+  "password": "Demo12345",
+  "confirmPassword": "Demo12345",
+  "rol": "organizador",
+  "tipoCuenta": "organizacion",
+  "rut": "76.123.456-0",
+  "aceptaTerminos": true
+}
+
+### Login de la otra organizacion -> esperado 200
+# @name loginColectivo
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "colectivo.demo@solee.com",
+  "password": "Demo12345"
+}
+
+### Crear una actividad propia para editar -> esperado 201
+# @name crearParaEditar
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "titulo": "Taller de grabado en linóleo",
+  "descripcion": "Taller práctico de grabado para principiantes. Materiales incluidos.",
+  "disciplina": "artes visuales",
+  "nivel": "principiante",
+  "modalidad": "presencial",
+  "precio": 12000,
+  "cupoMaximo": 12,
+  "ubicacion": { "type": "Point", "coordinates": [-70.6320, -33.4410] },
+  "direccionTexto": "Barrio Lastarria, Santiago",
+  "fechaInicio": "2026-11-21T14:00:00.000Z",
+  "fechaFin": "2026-11-21T17:00:00.000Z",
+  "horario": "tarde"
+}
+
+### Editar sin token -> esperado 401
+PUT {{baseUrl}}/actividades/{{crearParaEditar.response.body.$._id}}
+Content-Type: application/json
+
+{ "precio": 9000 }
+
+### Editar con otra organizacion -> esperado 403
+PUT {{baseUrl}}/actividades/{{crearParaEditar.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginColectivo.response.body.$.token}}
+
+{ "precio": 9000 }
+
+### Editar siendo la dueña -> esperado 200
+PUT {{baseUrl}}/actividades/{{crearParaEditar.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "precio": 9000, "titulo": "Taller de grabado en linóleo (cupos ampliados)", "cupoMaximo": 20 }
+
+### Pausar -> esperado 200
+PUT {{baseUrl}}/actividades/{{crearParaEditar.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "estado": "pausada" }
+
+### Estado invalido -> esperado 400
+PUT {{baseUrl}}/actividades/{{crearParaEditar.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "estado": "eliminada" }
+
+### Eliminar con otra organizacion -> esperado 403
+DELETE {{baseUrl}}/actividades/{{crearParaEditar.response.body.$._id}}
+Authorization: Bearer {{loginColectivo.response.body.$.token}}
+
+### Eliminar siendo la dueña -> esperado 200
+DELETE {{baseUrl}}/actividades/{{crearParaEditar.response.body.$._id}}
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+### Despues de eliminar, el detalle -> esperado 404
+GET {{baseUrl}}/actividades/{{crearParaEditar.response.body.$._id}}
+
+### Eliminar de nuevo -> esperado 404
+DELETE {{baseUrl}}/actividades/{{crearParaEditar.response.body.$._id}}
+Authorization: Bearer {{loginOrg.response.body.$.token}}

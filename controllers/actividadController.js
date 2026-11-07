@@ -1,6 +1,26 @@
+const mongoose = require("mongoose");
 const Actividad = require("../models/Actividad");
 
-// GET /api/actividades - búsqueda con filtros combinables
+const CAMPOS_EDITABLES = [
+  "titulo", "descripcion", "disciplina", "nivel", "modalidad", "precio",
+  "cupoMaximo", "direccionTexto", "ubicacion", "fechaInicio", "fechaFin",
+  "horario", "imagenUrl",
+];
+
+const coordenadasValidas = (ubicacion) =>
+  Array.isArray(ubicacion?.coordinates) &&
+  ubicacion.coordinates.length === 2 &&
+  ubicacion.coordinates.every((n) => Number.isFinite(Number(n)));
+
+const responderError = (res, error, contexto) => {
+  if (error.name === "ValidationError" || error.name === "CastError") {
+    return res.status(400).json({ mensaje: error.message });
+  }
+  console.error(`Error en ${contexto}:`, error);
+  res.status(500).json({ mensaje: "Error interno del servidor" });
+};
+
+// GET /api/actividades
 const buscarActividades = async (req, res) => {
   try {
     const { disciplina, nivel, precioMin, precioMax, modalidad, horario, lat, lng, radioKm } = req.query;
@@ -30,7 +50,7 @@ const buscarActividades = async (req, res) => {
         return res.status(400).json({ mensaje: "Ubicación inválida" });
       }
 
-      const radio = Math.min(Math.max(Number(radioKm) || 5, 1), 50); // entre 1 y 50 km
+      const radio = Math.min(Math.max(Number(radioKm) || 5, 1), 50);
 
       const actividades = await Actividad.aggregate([
         {
@@ -56,11 +76,14 @@ const buscarActividades = async (req, res) => {
   }
 };
 
-// GET /api/actividades/:id - detalle de una actividad
+// GET /api/actividades/:id
 const obtenerActividad = async (req, res) => {
   try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(404).json({ mensaje: "Actividad no encontrada" });
+    }
     const actividad = await Actividad.findById(req.params.id);
-    if (!actividad) {
+    if (!actividad || actividad.estado === "eliminada") {
       return res.status(404).json({ mensaje: "Actividad no encontrada" });
     }
     res.status(200).json(actividad);
@@ -70,20 +93,17 @@ const obtenerActividad = async (req, res) => {
   }
 };
 
-// POST /api/actividades - publicar nueva actividad (US-10, básico por ahora)
+// POST /api/actividades
 const crearActividad = async (req, res) => {
   try {
-    const datos = {
-      ...req.body,
-      organizadorId: req.usuario.userId,
-      cuposDisponibles: req.body.cupoMaximo,
-    };
+    const datos = {};
+    CAMPOS_EDITABLES.forEach((campo) => {
+      if (req.body[campo] !== undefined) datos[campo] = req.body[campo];
+    });
+    datos.organizadorId = req.usuario.userId;
+    datos.cuposDisponibles = datos.cupoMaximo;
 
-    const coords = datos.ubicacion?.coordinates;
-    if (!Array.isArray(coords) || coords.length !== 2) {
-      delete datos.ubicacion;
-    }
-
+    if (!coordenadasValidas(datos.ubicacion)) delete datos.ubicacion;
     if (datos.modalidad === "presencial" && !datos.ubicacion) {
       return res.status(400).json({ mensaje: "Las actividades presenciales requieren ubicación" });
     }
@@ -91,15 +111,17 @@ const crearActividad = async (req, res) => {
     const nuevaActividad = await Actividad.create(datos);
     res.status(201).json(nuevaActividad);
   } catch (error) {
-    console.error("Error creando actividad:", error);
-    res.status(400).json({ mensaje: error.message });
+    responderError(res, error, "creación de actividad");
   }
 };
 
 // GET /api/actividades/mis-actividades
 const misActividades = async (req, res) => {
   try {
-    const actividades = await Actividad.find({ organizadorId: req.usuario.userId }).sort({ createdAt: -1 });
+    const actividades = await Actividad.find({
+      organizadorId: req.usuario.userId,
+      estado: { $ne: "eliminada" },
+    }).sort({ createdAt: -1 });
     res.status(200).json({ total: actividades.length, actividades });
   } catch (error) {
     console.error("Error obteniendo mis actividades:", error);
@@ -107,4 +129,98 @@ const misActividades = async (req, res) => {
   }
 };
 
-module.exports = { buscarActividades, obtenerActividad, crearActividad, misActividades };
+// PUT /api/actividades/:id (US-11)
+const actualizarActividad = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(404).json({ mensaje: "Actividad no encontrada" });
+    }
+
+    const actividad = await Actividad.findById(id);
+    if (!actividad || actividad.estado === "eliminada") {
+      return res.status(404).json({ mensaje: "Actividad no encontrada" });
+    }
+    if (actividad.organizadorId.toString() !== req.usuario.userId) {
+      return res.status(403).json({ mensaje: "No puedes modificar una actividad que no es tuya" });
+    }
+
+    const cambios = {};
+    CAMPOS_EDITABLES.forEach((campo) => {
+      if (req.body[campo] !== undefined) cambios[campo] = req.body[campo];
+    });
+
+    if (req.body.estado !== undefined) {
+      if (!["activa", "pausada"].includes(req.body.estado)) {
+        return res.status(400).json({ mensaje: "Estado inválido" });
+      }
+      cambios.estado = req.body.estado;
+    }
+
+    if (cambios.cupoMaximo !== undefined) {
+      const nuevoMaximo = Number(cambios.cupoMaximo);
+      const reservados = actividad.cupoMaximo - actividad.cuposDisponibles;
+      if (!Number.isInteger(nuevoMaximo) || nuevoMaximo < 1) {
+        return res.status(400).json({ mensaje: "El cupo máximo debe ser un entero mayor a 0" });
+      }
+      if (nuevoMaximo < reservados) {
+        return res.status(400).json({
+          mensaje: `Ya hay ${reservados} cupos reservados, el cupo máximo no puede ser menor`,
+        });
+      }
+      cambios.cupoMaximo = nuevoMaximo;
+      cambios.cuposDisponibles = nuevoMaximo - reservados;
+    }
+
+    if (cambios.ubicacion !== undefined && !coordenadasValidas(cambios.ubicacion)) {
+      cambios.ubicacion = undefined;
+    }
+
+    actividad.set(cambios);
+
+    if (actividad.modalidad === "presencial" && !coordenadasValidas(actividad.ubicacion)) {
+      return res.status(400).json({ mensaje: "Las actividades presenciales requieren ubicación" });
+    }
+    if (actividad.fechaFin < actividad.fechaInicio) {
+      return res.status(400).json({ mensaje: "La fecha de término no puede ser anterior al inicio" });
+    }
+
+    await actividad.save();
+    res.status(200).json(actividad);
+  } catch (error) {
+    responderError(res, error, "actualización de actividad");
+  }
+};
+
+// DELETE /api/actividades/:id (US-11, eliminación lógica)
+const eliminarActividad = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(404).json({ mensaje: "Actividad no encontrada" });
+    }
+
+    const actividad = await Actividad.findById(id);
+    if (!actividad || actividad.estado === "eliminada") {
+      return res.status(404).json({ mensaje: "Actividad no encontrada" });
+    }
+    if (actividad.organizadorId.toString() !== req.usuario.userId) {
+      return res.status(403).json({ mensaje: "No puedes eliminar una actividad que no es tuya" });
+    }
+
+    actividad.estado = "eliminada";
+    await actividad.save();
+    res.status(200).json({ mensaje: "Actividad eliminada" });
+  } catch (error) {
+    responderError(res, error, "eliminación de actividad");
+  }
+};
+
+module.exports = {
+  buscarActividades,
+  obtenerActividad,
+  crearActividad,
+  misActividades,
+  actualizarActividad,
+  eliminarActividad,
+};
