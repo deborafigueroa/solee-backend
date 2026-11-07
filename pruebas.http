@@ -1,0 +1,231 @@
+############################################################
+# Solee API - pruebas con REST Client
+# Requiere el backend corriendo (npm run dev).
+# Cada bloque ### se ejecuta solo con "Send Request" o Ctrl+Alt+R.
+############################################################
+
+@baseUrl = http://localhost:5000/api
+
+############################################################
+# 0. HEALTH CHECK (confirma que el servidor esta arriba)
+############################################################
+
+### Health -> esperado 200 { status: "ok" }
+GET {{baseUrl}}/health
+
+### Registro participante -> esperado 201
+# @name registro
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "nombre": "Camila Rojas",
+  "email": "camila@solee.com",
+  "password": "Camila1234",
+  "confirmPassword": "Camila1234",
+  "rol": "participante",
+  "rut": "12.345.678-5",
+  "fechaNacimiento": "1998-05-14",
+  "telefono": "+56 9 1234 5678",
+  "comuna": "Ñuñoa",
+  "intereses": ["música", "teatro"],
+  "aceptaTerminos": true
+}
+
+############################################################
+# 1. AUTENTICACION (confirmar ruta en authRoutes)
+############################################################
+
+### Login organizador (guarda el token)
+# @name loginOrg
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "organizador@solee.com",
+  "password": "Test1234"
+}
+
+### Login participante (para probar el bloqueo por rol)
+# @name loginPart
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "participante@test.cl",
+  "password": "123456"
+}
+
+############################################################
+# 2. ACTIVIDADES - rutas publicas
+############################################################
+
+### Buscar todas las actividades -> esperado 200
+GET {{baseUrl}}/actividades
+
+### Buscar con filtros (ajustar nombres de query params al controller)
+GET {{baseUrl}}/actividades?disciplina=cerámica&modalidad=presencial&nivel=principiante
+
+############################################################
+# 3. ACTIVIDADES - rutas protegidas (organizador)
+############################################################
+
+### Crear actividad PRESENCIAL como organizador -> esperado 201
+# @name crear
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.token}}
+
+{
+  "titulo": "Taller de cerámica para principiantes",
+  "descripcion": "Taller introductorio de modelado en arcilla. Incluye materiales.",
+  "disciplina": "cerámica",
+  "nivel": "principiante",
+  "modalidad": "presencial",
+  "precio": 15000,
+  "cupoMaximo": 12,
+  "cuposDisponibles": 12,
+  "ubicacion": {
+    "type": "Point",
+    "coordinates": [-70.6109, -33.4263]
+  },
+  "direccionTexto": "Av. Providencia 1234, Providencia",
+  "fechaInicio": "2026-11-21T15:00:00.000Z",
+  "fechaFin": "2026-11-21T18:00:00.000Z",
+  "horario": "tarde"
+}
+
+### Crear actividad VIRTUAL sin ubicacion -> esperado 201 (valida que 2dsphere no se rompa)
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.token}}
+
+{
+  "titulo": "Escritura creativa online",
+  "descripcion": "Sesiones por Zoom para desarrollar relatos breves.",
+  "disciplina": "escritura",
+  "nivel": "todos los niveles",
+  "modalidad": "virtual",
+  "precio": 0,
+  "cupoMaximo": 30,
+  "cuposDisponibles": 30,
+  "fechaInicio": "2026-11-25T22:00:00.000Z",
+  "fechaFin": "2026-11-25T23:30:00.000Z",
+  "horario": "noche"
+}
+
+### Obtener la actividad recien creada por ID -> esperado 200
+GET {{baseUrl}}/actividades/{{crear.response.body._id}}
+
+### Mis actividades como organizador -> esperado 200
+GET {{baseUrl}}/actividades/mis-actividades
+Authorization: Bearer {{loginOrg.response.body.token}}
+
+############################################################
+# 4. CASOS NEGATIVOS - seguridad
+############################################################
+
+### Mis actividades sin token -> esperado 401
+GET {{baseUrl}}/actividades/mis-actividades
+
+### Mis actividades como participante -> esperado 403
+GET {{baseUrl}}/actividades/mis-actividades
+Authorization: Bearer {{loginPart.response.body.token}}
+
+### Crear actividad como participante -> esperado 403
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginPart.response.body.token}}
+
+{
+  "titulo": "No deberia crearse"
+}
+
+### Crear actividad con token falso -> esperado 401
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer token-inventado-123
+
+{
+  "titulo": "No deberia crearse"
+}
+
+############################################################
+# 5. CASOS NEGATIVOS - validacion del modelo
+############################################################
+
+### Faltan campos obligatorios -> esperado 400
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.token}}
+
+{
+  "titulo": "Actividad incompleta"
+}
+
+### Disciplina fuera del enum -> esperado 400
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.token}}
+
+{
+  "titulo": "Clase de cocina",
+  "descripcion": "No es una disciplina permitida",
+  "disciplina": "cocina",
+  "nivel": "principiante",
+  "modalidad": "presencial",
+  "precio": 5000,
+  "cupoMaximo": 10,
+  "cuposDisponibles": 10,
+  "fechaInicio": "2026-11-21T15:00:00.000Z",
+  "fechaFin": "2026-11-21T18:00:00.000Z",
+  "horario": "tarde"
+}
+
+### Precio negativo y cupo 0 -> esperado 400
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.token}}
+
+{
+  "titulo": "Datos invalidos",
+  "descripcion": "Precio bajo el minimo y cupo bajo el minimo",
+  "disciplina": "danza",
+  "nivel": "intermedio",
+  "modalidad": "presencial",
+  "precio": -100,
+  "cupoMaximo": 0,
+  "cuposDisponibles": 0,
+  "fechaInicio": "2026-11-21T15:00:00.000Z",
+  "fechaFin": "2026-11-21T18:00:00.000Z",
+  "horario": "tarde"
+}
+
+### Titulo sobre 120 caracteres -> esperado 400
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.token}}
+
+{
+  "titulo": "Este titulo es demasiado largo a proposito para comprobar que la validacion maxlength de ciento veinte caracteres funciona bien",
+  "descripcion": "Prueba de maxlength",
+  "disciplina": "teatro",
+  "nivel": "avanzado",
+  "modalidad": "híbrida",
+  "precio": 0,
+  "cupoMaximo": 5,
+  "cuposDisponibles": 5,
+  "fechaInicio": "2026-11-21T15:00:00.000Z",
+  "fechaFin": "2026-11-21T18:00:00.000Z",
+  "horario": "fin de semana"
+}
+
+############################################################
+# 6. CASOS NEGATIVOS - IDs
+############################################################
+
+### Obtener actividad con ID inexistente -> esperado 404
+GET {{baseUrl}}/actividades/000000000000000000000000
+
+### Obtener actividad con ID mal formado -> esperado 400 (500 si no esta controlado)
+GET {{baseUrl}}/actividades/abc123
