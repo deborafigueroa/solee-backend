@@ -51,20 +51,31 @@ const buscarActividades = async (req, res) => {
         return res.status(400).json({ mensaje: "Ubicación inválida" });
       }
 
-      const radio = Math.min(Math.max(Number(radioKm) || 5, 1), 50);
+      // Con radioKm se limita la distancia. Sin radioKm solo se ordena por cercanía.
+      const hayRadio = radioKm !== undefined && radioKm !== "";
+      const radio = hayRadio ? Math.min(Math.max(Number(radioKm) || 5, 1), 50) : null;
 
-      const actividades = await Actividad.aggregate([
-        {
-          $geoNear: {
-            near: { type: "Point", coordinates: [longitud, latitud] },
-            distanceField: "distanciaMetros",
-            maxDistance: radio * 1000,
-            spherical: true,
-            query: filtros,
-          },
-        },
-        { $limit: 50 },
-      ]);
+      const etapaGeo = {
+        near: { type: "Point", coordinates: [longitud, latitud] },
+        distanceField: "distanciaMetros",
+        spherical: true,
+        query: filtros,
+      };
+      if (radio) etapaGeo.maxDistance = radio * 1000;
+
+      const cercanas = await Actividad.aggregate([{ $geoNear: etapaGeo }, { $limit: 50 }]);
+
+      let actividades = cercanas;
+      if (!radio) {
+        // Las actividades sin ubicación (virtuales) van al final de la lista
+        const sinUbicacion = await Actividad.find({
+          ...filtros,
+          "ubicacion.coordinates": { $exists: false },
+        })
+          .sort({ fechaInicio: 1 })
+          .limit(20);
+        actividades = [...cercanas, ...sinUbicacion];
+      }
 
       return res.status(200).json({ total: actividades.length, actividades });
     }

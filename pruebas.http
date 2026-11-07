@@ -331,3 +331,6 @@ GET {{baseUrl}}/actividades/{{crearParaEditar.response.body.$._id}}
 ### Eliminar de nuevo -> esperado 404
 DELETE {{baseUrl}}/actividades/{{crearParaEditar.response.body.$._id}}
 Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+### US-05: solo ordenar por cercania, sin radio -> esperado 200, con distanciaMetros ascendente y las virtuales al final
+GET {{baseUrl}}/actividades?lat=-33.4372&lng=-70.6180
