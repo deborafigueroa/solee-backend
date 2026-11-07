@@ -5,39 +5,51 @@ const buscarActividades = async (req, res) => {
   try {
     const { disciplina, nivel, precioMin, precioMax, modalidad, horario, lat, lng, radioKm } = req.query;
 
-    const query = { estado: "activa" };
-
-    if (disciplina) query.disciplina = disciplina;
-    if (nivel) query.nivel = nivel;
-    if (modalidad) query.modalidad = modalidad;
-    if (horario) query.horario = horario;
+    const filtros = { estado: "activa" };
+    if (disciplina) filtros.disciplina = String(disciplina);
+    if (nivel) filtros.nivel = String(nivel);
+    if (modalidad) filtros.modalidad = String(modalidad);
+    if (horario) filtros.horario = String(horario);
 
     if (precioMin || precioMax) {
-      query.precio = {};
-      if (precioMin) query.precio.$gte = Number(precioMin);
-      if (precioMax) query.precio.$lte = Number(precioMax);
+      filtros.precio = {};
+      if (precioMin) filtros.precio.$gte = Number(precioMin);
+      if (precioMax) filtros.precio.$lte = Number(precioMax);
     }
 
-    // Filtro geoespacial (US-05): si vienen lat/lng, usamos $near
-    if (lat && lng) {
-      const radioMetros = (Number(radioKm) || 5) * 1000; // default 5km
-      query.ubicacion = {
-        $near: {
-          $geometry: {
-            type: "Point",
-            coordinates: [Number(lng), Number(lat)],
+    const hayUbicacion = lat !== undefined && lat !== "" && lng !== undefined && lng !== "";
+
+    if (hayUbicacion) {
+      const latitud = Number(lat);
+      const longitud = Number(lng);
+
+      if (
+        !Number.isFinite(latitud) || !Number.isFinite(longitud) ||
+        Math.abs(latitud) > 90 || Math.abs(longitud) > 180
+      ) {
+        return res.status(400).json({ mensaje: "Ubicación inválida" });
+      }
+
+      const radio = Math.min(Math.max(Number(radioKm) || 5, 1), 50); // entre 1 y 50 km
+
+      const actividades = await Actividad.aggregate([
+        {
+          $geoNear: {
+            near: { type: "Point", coordinates: [longitud, latitud] },
+            distanceField: "distanciaMetros",
+            maxDistance: radio * 1000,
+            spherical: true,
+            query: filtros,
           },
-          $maxDistance: radioMetros,
         },
-      };
+        { $limit: 50 },
+      ]);
+
+      return res.status(200).json({ total: actividades.length, actividades });
     }
 
-    const actividades = await Actividad.find(query).limit(20).sort({ fechaInicio: 1 });
-
-    res.status(200).json({
-      total: actividades.length,
-      actividades,
-    });
+    const actividades = await Actividad.find(filtros).limit(20).sort({ fechaInicio: 1 });
+    res.status(200).json({ total: actividades.length, actividades });
   } catch (error) {
     console.error("Error en búsqueda de actividades:", error);
     res.status(500).json({ mensaje: "Error interno del servidor" });
