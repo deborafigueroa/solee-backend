@@ -23,4 +23,11 @@ const soloOrganizador = (req, res, next) => {
   next();
 };
 
-module.exports = { verificarToken, soloOrganizador };
+const soloParticipante = (req, res, next) => {
+  if (req.usuario.rol !== "participante") {
+    return res.status(403).json({ mensaje: "Solo los participantes pueden realizar esta acción" });
+  }
+  next();
+};
+
+module.exports = { verificarToken, soloOrganizador, soloParticipante };

@@ -4,11 +4,13 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const authRoutes = require("./routes/authRoutes");
 const actividadRoutes = require("./routes/actividadRoutes");
+const reservaRoutes = require("./routes/reservaRoutes");
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use("/api/reservas", reservaRoutes);
 
 // Conexión a MongoDB
 mongoose
@@ -24,6 +26,7 @@ app.use("/api/actividades", actividadRoutes);
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", message: "Servidor Solee funcionando" });
 });
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

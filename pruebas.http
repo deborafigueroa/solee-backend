@@ -52,8 +52,8 @@ POST {{baseUrl}}/auth/login
 Content-Type: application/json
 
 {
-  "email": "participante@test.cl",
-  "password": "123456"
+  "email": "participante@solee.com",
+  "password": "Test1234"
 }
 
 ############################################################
@@ -334,3 +334,89 @@ Authorization: Bearer {{loginOrg.response.body.$.token}}
 
 ### US-05: solo ordenar por cercania, sin radio -> esperado 200, con distanciaMetros ascendente y las virtuales al final
 GET {{baseUrl}}/actividades?lat=-33.4372&lng=-70.6180
+
+
+############################################################
+# 9. US-11: pruebas pendientes del checklist
+# Orden: loginOrg, loginPart, loginPart2 y crearParaEditar2 antes de las demas.
+############################################################
+
+### Actividad con 5 cupos -> esperado 201
+# @name crearParaEditar2
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "titulo": "Taller de fotografia, cinco cupos",
+  "descripcion": "Actividad de prueba para validar cambios de cupo.",
+  "disciplina": "fotografía",
+  "nivel": "todos los niveles",
+  "modalidad": "presencial",
+  "precio": 0,
+  "cupoMaximo": 5,
+  "ubicacion": { "type": "Point", "coordinates": [-70.6109, -33.4263] },
+  "direccionTexto": "Providencia, Santiago",
+  "fechaInicio": "2026-12-10T15:00:00.000Z",
+  "fechaFin": "2026-12-10T18:00:00.000Z",
+  "horario": "tarde"
+}
+
+### Editar como participante -> esperado 403
+PUT {{baseUrl}}/actividades/{{crearParaEditar2.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginPart.response.body.$.token}}
+
+{ "precio": 5000 }
+
+### Fecha de termino anterior al inicio -> esperado 400
+PUT {{baseUrl}}/actividades/{{crearParaEditar2.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "fechaFin": "2026-12-09T10:00:00.000Z" }
+
+### Quitar la ubicacion a una presencial -> esperado 400
+PUT {{baseUrl}}/actividades/{{crearParaEditar2.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "ubicacion": null }
+
+### Reservar dos cupos -> esperado 201 y 201
+POST {{baseUrl}}/reservas
+Content-Type: application/json
+Authorization: Bearer {{loginPart.response.body.$.token}}
+
+{ "actividadId": "{{crearParaEditar2.response.body.$._id}}" }
+
+###
+POST {{baseUrl}}/reservas
+Content-Type: application/json
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+{ "actividadId": "{{crearParaEditar2.response.body.$._id}}" }
+
+### Bajar el cupo maximo a menos de lo reservado -> esperado 400 ("Ya hay 2 cupos reservados")
+PUT {{baseUrl}}/actividades/{{crearParaEditar2.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "cupoMaximo": 1 }
+
+### Subir el cupo maximo a 8 -> esperado 200, con cuposDisponibles en 6 (8 menos 2 reservados)
+PUT {{baseUrl}}/actividades/{{crearParaEditar2.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "cupoMaximo": 8 }
+
+### Pausar la actividad -> esperado 200
+PUT {{baseUrl}}/actividades/{{crearParaEditar2.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "estado": "pausada" }
+
+### Una pausada no aparece en la busqueda -> esperado: "Taller de fotografia, cinco cupos" NO esta en la lista
+GET {{baseUrl}}/actividades?disciplina=fotografía
