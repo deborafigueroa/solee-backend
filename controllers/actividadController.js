@@ -26,7 +26,7 @@ const buscarActividades = async (req, res) => {
   try {
     const { disciplina, nivel, precioMin, precioMax, modalidad, horario, lat, lng, radioKm } = req.query;
 
-    const filtros = { estado: "activa" };
+    const filtros = { estado: "activa", fechaFin: { $gte: new Date() } };
     if (disciplina) filtros.disciplina = String(disciplina);
     if (nivel) filtros.nivel = String(nivel);
     if (modalidad) filtros.modalidad = String(modalidad);
