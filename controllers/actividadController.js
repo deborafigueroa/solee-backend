@@ -7,10 +7,11 @@ const CAMPOS_EDITABLES = [
   "horario", "imagenUrl",
 ];
 
-const coordenadasValidas = (ubicacion) =>
-  Array.isArray(ubicacion?.coordinates) &&
-  ubicacion.coordinates.length === 2 &&
-  ubicacion.coordinates.every((n) => Number.isFinite(Number(n)));
+const coordenadasValidas = (ubicacion) => {
+  if (!Array.isArray(ubicacion?.coordinates) || ubicacion.coordinates.length !== 2) return false;
+  const [lng, lat] = ubicacion.coordinates.map(Number);
+  return Number.isFinite(lng) && Number.isFinite(lat) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+};
 
 const responderError = (res, error, contexto) => {
   if (error.name === "ValidationError" || error.name === "CastError") {
