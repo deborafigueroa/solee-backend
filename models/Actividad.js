@@ -78,11 +78,15 @@ const actividadSchema = new mongoose.Schema({
     ref: "Usuario",
     required: true,
   },
-    estado: {
+  estado: {
     type: String,
     enum: ["borrador", "activa", "pausada", "finalizada", "eliminada"],
     default: "activa",
   },
+  calificacionPromedio: { 
+    type: Number, default: 0, min: 0, max: 5 },
+  totalResenas: { 
+    type: Number, default: 0 },
 }, {
   timestamps: true,
 });
