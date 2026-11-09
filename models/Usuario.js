@@ -13,6 +13,7 @@ const usuarioSchema = new mongoose.Schema({
   telefono: { type: String, maxlength: 15 },
   comuna: { type: String, maxlength: 60 },
   intereses: [{ type: String, enum: DISCIPLINAS }],
+  fcmTokens: { type: [String], default: [] },
   consentimientoLey19628: {
     aceptado: { type: Boolean },
     fecha: { type: Date },
