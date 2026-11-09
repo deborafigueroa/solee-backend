@@ -4,7 +4,7 @@ const Reserva = require("../models/Reserva");
 
 const CAMPOS_EDITABLES = [
   "titulo", "descripcion", "disciplina", "nivel", "modalidad", "precio",
-  "cupoMaximo", "direccionTexto", "ubicacion", "fechaInicio", "fechaFin",
+  "cupoMaximo", "direccionTexto", "instrucciones", "ubicacion", "fechaInicio", "fechaFin",
   "horario", "imagenUrl",
 ];
 
@@ -127,6 +127,7 @@ const crearActividad = async (req, res) => {
     datos.estado = req.body.estado === "borrador" ? "borrador" : "activa";
 
     if (!coordenadasValidas(datos.ubicacion)) delete datos.ubicacion;
+    if (datos.modalidad === "virtual") delete datos.ubicacion;
     if (datos.modalidad === "presencial" && !datos.ubicacion) {
       return res.status(400).json({ mensaje: "Las actividades presenciales requieren ubicación" });
     }
@@ -177,6 +178,10 @@ const actualizarActividad = async (req, res) => {
       if (req.body[campo] !== undefined) cambios[campo] = req.body[campo];
     });
 
+    // La ubicación se maneja aparte, para no dejar el campo a medias
+    const llegaUbicacion = req.body.ubicacion !== undefined;
+    delete cambios.ubicacion;
+
     if (req.body.estado !== undefined) {
       const nuevo = req.body.estado;
       if (!["activa", "pausada"].includes(nuevo)) {
@@ -203,13 +208,24 @@ const actualizarActividad = async (req, res) => {
       cambios.cuposDisponibles = nuevoMaximo - reservados;
     }
 
-    if (cambios.ubicacion !== undefined && !coordenadasValidas(cambios.ubicacion)) {
-      cambios.ubicacion = undefined;
-    }
-
     actividad.set(cambios);
 
-    if (actividad.modalidad === "presencial" && !coordenadasValidas(actividad.ubicacion)) {
+    let quitarUbicacion = false;
+    if (actividad.modalidad === "virtual") {
+      quitarUbicacion = true;
+    } else if (llegaUbicacion) {
+      if (coordenadasValidas(req.body.ubicacion)) {
+        actividad.ubicacion = {
+          type: "Point",
+          coordinates: req.body.ubicacion.coordinates.map(Number),
+        };
+      } else {
+        quitarUbicacion = true;
+      }
+    }
+
+    const quedaConUbicacion = !quitarUbicacion && coordenadasValidas(actividad.ubicacion);
+    if (actividad.modalidad === "presencial" && !quedaConUbicacion) {
       return res.status(400).json({ mensaje: "Las actividades presenciales requieren ubicación" });
     }
     if (actividad.fechaFin < actividad.fechaInicio) {
@@ -222,7 +238,13 @@ const actualizarActividad = async (req, res) => {
     }
 
     await actividad.save();
-    res.status(200).json(actividad);
+
+    if (quitarUbicacion) {
+      await Actividad.updateOne({ _id: id }, { $unset: { ubicacion: "" } });
+    }
+
+    const actualizada = await Actividad.findById(id);
+    res.status(200).json(actualizada);
   } catch (error) {
     responderError(res, error, "actualización de actividad");
   }

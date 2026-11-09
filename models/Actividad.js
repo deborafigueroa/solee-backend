@@ -54,6 +54,9 @@ const actividadSchema = new mongoose.Schema({
   direccionTexto: {
     type: String,
   },
+  instrucciones: {
+       type: String, maxlength: 500 
+  },
   fechaInicio: {
     type: Date,
     required: true,
