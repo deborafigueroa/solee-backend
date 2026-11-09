@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const Actividad = require("../models/Actividad");
 const Reserva = require("../models/Reserva");
 const { notificarReservaConfirmada, notificarNuevaReserva } = require("../services/notificaciones");
+const Resena = require("../models/Resena");
 
 // POST /api/reservas
 const crearReserva = async (req, res) => {
@@ -92,15 +93,26 @@ const misReservas = async (req, res) => {
       .sort({ createdAt: -1 })
       .populate("actividadId", "titulo disciplina fechaInicio fechaFin direccionTexto modalidad precio estado");
 
+    const idsActividad = reservas.map((r) => r.actividadId?._id).filter(Boolean);
+    const resenas = await Resena.find({
+      participanteId: req.usuario.userId,
+      actividadId: { $in: idsActividad },
+    }).select("actividadId calificacion comentario");
+    const porActividad = new Map(resenas.map((r) => [r.actividadId.toString(), r]));
+
     res.status(200).json({
       total: reservas.length,
-      reservas: reservas.map((r) => ({
-        _id: r._id,
-        estado: r.estado,
-        codigoQR: r.codigoQR,
-        creadoEn: r.createdAt,
-        actividad: r.actividadId,
-      })),
+      reservas: reservas.map((r) => {
+        const mia = r.actividadId ? porActividad.get(r.actividadId._id.toString()) : null;
+        return {
+          _id: r._id,
+          estado: r.estado,
+          codigoQR: r.codigoQR,
+          creadoEn: r.createdAt,
+          actividad: r.actividadId,
+          miResena: mia ? { _id: mia._id, calificacion: mia.calificacion, comentario: mia.comentario } : null,
+        };
+      }),
     });
   } catch (error) {
     console.error("Error obteniendo mis reservas:", error);
@@ -195,4 +207,43 @@ const reservasDeActividad = async (req, res) => {
   }
 };
 
-module.exports = { crearReserva, misReservas, cancelarReserva, reservasDeActividad };
+// PUT /api/reservas/:id/asistencia (organizador dueña de la actividad)
+const marcarAsistencia = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { estado } = req.body;
+
+    if (!["asistió", "no asistió"].includes(estado)) {
+      return res.status(400).json({ mensaje: "Estado inválido" });
+    }
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(404).json({ mensaje: "Reserva no encontrada" });
+    }
+
+    const reserva = await Reserva.findById(id);
+    if (!reserva) {
+      return res.status(404).json({ mensaje: "Reserva no encontrada" });
+    }
+
+    const actividad = await Actividad.findById(reserva.actividadId);
+    if (!actividad || actividad.organizadorId.toString() !== req.usuario.userId) {
+      return res.status(403).json({ mensaje: "No puedes modificar reservas de una actividad que no es tuya" });
+    }
+    if (actividad.fechaInicio > new Date()) {
+      return res.status(409).json({ mensaje: "La asistencia se puede marcar cuando la actividad ya comenzó" });
+    }
+    if (!["confirmada", "asistió", "no asistió"].includes(reserva.estado)) {
+      return res.status(409).json({ mensaje: "Esta reserva está cancelada" });
+    }
+
+    reserva.estado = estado;
+    await reserva.save();
+
+    res.status(200).json({ mensaje: "Asistencia registrada", estado: reserva.estado });
+  } catch (error) {
+    console.error("Error marcando asistencia:", error);
+    res.status(500).json({ mensaje: "Error interno del servidor" });
+  }
+};
+
+module.exports = { crearReserva, misReservas, cancelarReserva, reservasDeActividad, marcarAsistencia };
