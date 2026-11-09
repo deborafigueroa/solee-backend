@@ -75,9 +75,9 @@ const actividadSchema = new mongoose.Schema({
     ref: "Usuario",
     required: true,
   },
-  estado: {
+    estado: {
     type: String,
-    enum: ["activa", "pausada", "finalizada", "eliminada"],
+    enum: ["borrador", "activa", "pausada", "finalizada", "eliminada"],
     default: "activa",
   },
 }, {

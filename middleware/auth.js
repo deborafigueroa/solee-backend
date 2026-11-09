@@ -16,6 +16,18 @@ const verificarToken = (req, res, next) => {
   }
 };
 
+const tokenOpcional = (req, res, next) => {
+  const header = req.headers.authorization;
+  if (header && header.startsWith("Bearer ")) {
+    try {
+      req.usuario = jwt.verify(header.split(" ")[1], process.env.JWT_SECRET);
+    } catch (error) {
+      // Token inválido: se trata como visitante
+    }
+  }
+  next();
+};
+
 const soloOrganizador = (req, res, next) => {
   if (req.usuario.rol !== "organizador") {
     return res.status(403).json({ mensaje: "Solo los organizadores pueden realizar esta acción" });
@@ -30,4 +42,4 @@ const soloParticipante = (req, res, next) => {
   next();
 };
 
-module.exports = { verificarToken, soloOrganizador, soloParticipante };
+module.exports = { verificarToken, tokenOpcional, soloOrganizador, soloParticipante };

@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Actividad = require("../models/Actividad");
+const Reserva = require("../models/Reserva");
 
 const CAMPOS_EDITABLES = [
   "titulo", "descripcion", "disciplina", "nivel", "modalidad", "precio",
@@ -98,6 +99,15 @@ const obtenerActividad = async (req, res) => {
     if (!actividad || actividad.estado === "eliminada") {
       return res.status(404).json({ mensaje: "Actividad no encontrada" });
     }
+
+    // Un borrador solo lo ve su dueña
+    if (actividad.estado === "borrador") {
+      const esDuena = req.usuario && actividad.organizadorId.toString() === req.usuario.userId;
+      if (!esDuena) {
+        return res.status(404).json({ mensaje: "Actividad no encontrada" });
+      }
+    }
+
     res.status(200).json(actividad);
   } catch (error) {
     console.error("Error obteniendo actividad:", error);
@@ -114,10 +124,14 @@ const crearActividad = async (req, res) => {
     });
     datos.organizadorId = req.usuario.userId;
     datos.cuposDisponibles = datos.cupoMaximo;
+    datos.estado = req.body.estado === "borrador" ? "borrador" : "activa";
 
     if (!coordenadasValidas(datos.ubicacion)) delete datos.ubicacion;
     if (datos.modalidad === "presencial" && !datos.ubicacion) {
       return res.status(400).json({ mensaje: "Las actividades presenciales requieren ubicación" });
+    }
+    if (new Date(datos.fechaFin) < new Date(datos.fechaInicio)) {
+      return res.status(400).json({ mensaje: "La fecha de término no puede ser anterior al inicio" });
     }
 
     const nuevaActividad = await Actividad.create(datos);
@@ -157,16 +171,21 @@ const actualizarActividad = async (req, res) => {
       return res.status(403).json({ mensaje: "No puedes modificar una actividad que no es tuya" });
     }
 
+    const estadoAnterior = actividad.estado;
     const cambios = {};
     CAMPOS_EDITABLES.forEach((campo) => {
       if (req.body[campo] !== undefined) cambios[campo] = req.body[campo];
     });
 
     if (req.body.estado !== undefined) {
-      if (!["activa", "pausada"].includes(req.body.estado)) {
+      const nuevo = req.body.estado;
+      if (!["activa", "pausada"].includes(nuevo)) {
         return res.status(400).json({ mensaje: "Estado inválido" });
       }
-      cambios.estado = req.body.estado;
+      if (estadoAnterior === "borrador" && nuevo === "pausada") {
+        return res.status(400).json({ mensaje: "Un borrador no se puede pausar, publícalo primero" });
+      }
+      cambios.estado = nuevo;
     }
 
     if (cambios.cupoMaximo !== undefined) {
@@ -197,6 +216,11 @@ const actualizarActividad = async (req, res) => {
       return res.status(400).json({ mensaje: "La fecha de término no puede ser anterior al inicio" });
     }
 
+    const publicando = estadoAnterior === "borrador" && actividad.estado === "activa";
+    if (publicando && actividad.fechaFin < new Date()) {
+      return res.status(400).json({ mensaje: "La fecha de término ya pasó, edítala antes de publicar" });
+    }
+
     await actividad.save();
     res.status(200).json(actividad);
   } catch (error) {
@@ -222,7 +246,17 @@ const eliminarActividad = async (req, res) => {
 
     actividad.estado = "eliminada";
     await actividad.save();
-    res.status(200).json({ mensaje: "Actividad eliminada" });
+
+    // Las reservas confirmadas de una actividad eliminada se cancelan
+    const resultado = await Reserva.updateMany(
+      { actividadId: id, estado: "confirmada" },
+      { estado: "cancelada" }
+    );
+
+    res.status(200).json({
+      mensaje: "Actividad eliminada",
+      reservasCanceladas: resultado.modifiedCount,
+    });
   } catch (error) {
     responderError(res, error, "eliminación de actividad");
   }

@@ -147,4 +147,50 @@ const cancelarReserva = async (req, res) => {
   }
 };
 
-module.exports = { crearReserva, misReservas, cancelarReserva };
+// GET /api/reservas/actividad/:id (organizador dueña de la actividad)
+const reservasDeActividad = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(404).json({ mensaje: "Actividad no encontrada" });
+    }
+
+    const actividad = await Actividad.findById(id);
+    if (!actividad || actividad.estado === "eliminada") {
+      return res.status(404).json({ mensaje: "Actividad no encontrada" });
+    }
+    if (actividad.organizadorId.toString() !== req.usuario.userId) {
+      return res.status(403).json({ mensaje: "No puedes ver las reservas de una actividad que no es tuya" });
+    }
+
+    // Solo se expone nombre y correo, lo mínimo para coordinar la actividad
+    const reservas = await Reserva.find({ actividadId: id })
+      .sort({ createdAt: -1 })
+      .populate("participanteId", "nombre email");
+
+    res.status(200).json({
+      actividad: {
+        id: actividad._id,
+        titulo: actividad.titulo,
+        estado: actividad.estado,
+        fechaInicio: actividad.fechaInicio,
+        cupoMaximo: actividad.cupoMaximo,
+        cuposDisponibles: actividad.cuposDisponibles,
+      },
+      confirmadas: reservas.filter((r) => r.estado === "confirmada").length,
+      reservas: reservas.map((r) => ({
+        _id: r._id,
+        estado: r.estado,
+        creadoEn: r.createdAt,
+        participante: r.participanteId
+          ? { nombre: r.participanteId.nombre, email: r.participanteId.email }
+          : null,
+      })),
+    });
+  } catch (error) {
+    console.error("Error obteniendo reservas de la actividad:", error);
+    res.status(500).json({ mensaje: "Error interno del servidor" });
+  }
+};
+
+module.exports = { crearReserva, misReservas, cancelarReserva, reservasDeActividad };
