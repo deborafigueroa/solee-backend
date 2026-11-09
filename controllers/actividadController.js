@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const Actividad = require("../models/Actividad");
 const Reserva = require("../models/Reserva");
+const {notificarNuevaActividad, notificarCambioActividad, notificarEliminacion} = require("../services/notificaciones");
 
 const CAMPOS_EDITABLES = [
   "titulo", "descripcion", "disciplina", "nivel", "modalidad", "precio",
@@ -136,6 +137,8 @@ const crearActividad = async (req, res) => {
     }
 
     const nuevaActividad = await Actividad.create(datos);
+    if (nuevaActividad.estado === "activa") notificarNuevaActividad(nuevaActividad);
+
     res.status(201).json(nuevaActividad);
   } catch (error) {
     responderError(res, error, "creación de actividad");
@@ -173,6 +176,13 @@ const actualizarActividad = async (req, res) => {
     }
 
     const estadoAnterior = actividad.estado;
+    const antes = {
+      inicio: actividad.fechaInicio.getTime(),
+      fin: actividad.fechaFin.getTime(),
+      direccion: actividad.direccionTexto || "",
+      coords: JSON.stringify(actividad.ubicacion?.coordinates || []),
+    };
+
     const cambios = {};
     CAMPOS_EDITABLES.forEach((campo) => {
       if (req.body[campo] !== undefined) cambios[campo] = req.body[campo];
@@ -244,6 +254,25 @@ const actualizarActividad = async (req, res) => {
     }
 
     const actualizada = await Actividad.findById(id);
+
+    // Avisos: publicación de un borrador, o cambio de fecha, hora o lugar
+    if (publicando) {
+      notificarNuevaActividad(actualizada);
+    } else if (estadoAnterior !== "borrador") {
+      const cambioFecha =
+        antes.inicio !== actualizada.fechaInicio.getTime() || antes.fin !== actualizada.fechaFin.getTime();
+      const cambioLugar =
+        antes.direccion !== (actualizada.direccionTexto || "") ||
+        antes.coords !== JSON.stringify(actualizada.ubicacion?.coordinates || []);
+
+      if (cambioFecha || cambioLugar) {
+        const partes = [];
+        if (cambioFecha) partes.push("la fecha u horario");
+        if (cambioLugar) partes.push("el lugar");
+        notificarCambioActividad(actualizada, partes.join(" y "));
+      }
+    }
+
     res.status(200).json(actualizada);
   } catch (error) {
     responderError(res, error, "actualización de actividad");
@@ -266,14 +295,21 @@ const eliminarActividad = async (req, res) => {
       return res.status(403).json({ mensaje: "No puedes eliminar una actividad que no es tuya" });
     }
 
+    // Se guardan los inscritos antes de cancelar sus reservas, para poder avisarles
+    const inscritosIds = await Reserva.distinct("participanteId", {
+      actividadId: id,
+      estado: "confirmada",
+    });
+
     actividad.estado = "eliminada";
     await actividad.save();
 
-    // Las reservas confirmadas de una actividad eliminada se cancelan
     const resultado = await Reserva.updateMany(
       { actividadId: id, estado: "confirmada" },
       { estado: "cancelada" }
     );
+
+    notificarEliminacion(actividad, inscritosIds);
 
     res.status(200).json({
       mensaje: "Actividad eliminada",

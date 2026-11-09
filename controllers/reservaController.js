@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const Actividad = require("../models/Actividad");
 const Reserva = require("../models/Reserva");
+const { notificarReservaConfirmada, notificarNuevaReserva } = require("../services/notificaciones");
 
 // POST /api/reservas
 const crearReserva = async (req, res) => {
@@ -50,7 +51,8 @@ const crearReserva = async (req, res) => {
         participanteId: req.usuario.userId,
         actividadId,
       });
-
+      notificarReservaConfirmada(req.usuario.userId, actividad);
+      notificarNuevaReserva(actividad.organizadorId, actividad);
       return res.status(201).json({
         mensaje: "Reserva confirmada",
         reserva: {
