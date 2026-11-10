@@ -404,6 +404,12 @@ const crearActividadesMultiples = async (req, res) => {
       serieId = new mongoose.Types.ObjectId();
     }
     if (serieId) base.serieId = serieId;
+    
+    // Las copias heredan la calificación de la serie
+    if (origen && serieId) {
+      base.calificacionPromedio = origen.calificacionPromedio || 0;
+      base.totalResenas = origen.totalResenas || 0;
+    }    
 
     // Se valida todo antes de guardar, para no crear solo una parte
     const documentos = periodos.map((p) => new Actividad({ ...base, ...p }));

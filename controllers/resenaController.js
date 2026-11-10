@@ -4,13 +4,21 @@ const Reserva = require("../models/Reserva");
 const Resena = require("../models/Resena");
 
 const recalcularCalificacion = async (actividadId) => {
+  const actividad = await Actividad.findById(actividadId).select("serieId");
+  if (!actividad) return;
+
+  // Con serie, el promedio considera las reseñas de todas las fechas
+  const ids = actividad.serieId
+    ? await Actividad.distinct("_id", { serieId: actividad.serieId })
+    : [actividad._id];
+
   const [resumen] = await Resena.aggregate([
-    { $match: { actividadId: new mongoose.Types.ObjectId(String(actividadId)) } },
+    { $match: { actividadId: { $in: ids } } },
     { $group: { _id: null, promedio: { $avg: "$calificacion" }, total: { $sum: 1 } } },
   ]);
 
-  await Actividad.updateOne(
-    { _id: actividadId },
+  await Actividad.updateMany(
+    { _id: { $in: ids } },
     {
       calificacionPromedio: resumen ? Math.round(resumen.promedio * 10) / 10 : 0,
       totalResenas: resumen ? resumen.total : 0,
@@ -38,25 +46,42 @@ const listarResenas = async (req, res) => {
       return res.status(404).json({ mensaje: "Actividad no encontrada" });
     }
 
-    const actividad = await Actividad.findById(id).select("estado calificacionPromedio totalResenas");
+    const actividad = await Actividad.findById(id).select(
+      "estado calificacionPromedio totalResenas serieId"
+    );
     if (!actividad || actividad.estado === "eliminada" || actividad.estado === "borrador") {
       return res.status(404).json({ mensaje: "Actividad no encontrada" });
     }
 
-    const resenas = await Resena.find({ actividadId: id })
+    // Con serie, se muestran las reseñas de todas las fechas de la actividad
+    const ids = actividad.serieId
+      ? await Actividad.distinct("_id", { serieId: actividad.serieId })
+      : [actividad._id];
+    const ediciones = actividad.serieId
+      ? await Actividad.countDocuments({
+          serieId: actividad.serieId,
+          estado: { $nin: ["eliminada", "borrador"] },
+        })
+      : 1;
+
+    const resenas = await Resena.find({ actividadId: { $in: ids } })
       .sort({ createdAt: -1 })
       .limit(50)
-      .populate("participanteId", "nombre");
+      .populate("participanteId", "nombre")
+      .populate("actividadId", "fechaInicio");
 
     const respuesta = {
       promedio: actividad.calificacionPromedio || 0,
       total: actividad.totalResenas || 0,
+      ediciones,
       resenas: resenas.map((r) => ({
         _id: r._id,
         calificacion: r.calificacion,
         comentario: r.comentario,
         creadoEn: r.createdAt,
         autor: r.participanteId ? String(r.participanteId.nombre).split(" ")[0] : "Participante",
+        fechaActividad: r.actividadId ? r.actividadId.fechaInicio : null,
+        deEstaFecha: r.actividadId ? r.actividadId._id.toString() === id : false,
       })),
       puedeResenar: false,
       miResena: null,
