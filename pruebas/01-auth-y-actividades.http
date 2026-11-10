@@ -5,6 +5,22 @@
 # Las cuentas QA se crean en la seccion 1: 201 la primera vez y 409 las siguientes.
 ############################################################
 
+############################################################
+# COBERTURA POR HISTORIA DE USUARIO
+# US-01, US-02, US-03 Registro, login y roles: bloques 1.1 a 1.10 y 2.1 a 2.6
+# US-10 Publicar actividades: 3.1 a 3.8
+# US-10 Borradores (guardar, ver como duena, publicar): 4.1 a 4.7
+# US-04 Busqueda por disciplina: 5.3
+# US-05 Filtro por ubicacion y radio: 5.7 a 5.9
+# US-06 Nivel y US-08 Modalidad: 5.4
+# US-07 Precio: 5.5
+# US-18 Horario: 5.6
+# US-19 Validacion del filtro por calificacion: 5.10
+# US-11 Mis actividades: 6.1 a 6.3
+# US-11 Editar y pausar: 6.4 a 6.10
+# US-11 Ubicacion al cambiar entre presencial y virtual: 6.11 a 6.13
+############################################################
+
 @baseUrl = http://localhost:5000/api
 @clave = Prueba1234
 
