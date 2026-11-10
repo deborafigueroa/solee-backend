@@ -55,7 +55,7 @@ const enviar = async (tokens, { titulo, cuerpo, url, tipo }) => {
 };
 
 // Actividad nueva: participantes que marcaron esa disciplina
-const notificarNuevaActividad = (actividad) =>
+const notificarNuevaActividad = (actividad, cantidadFechas = 1) =>
   enSegundoPlano(async () => {
     const interesados = await Usuario.find({
       rol: "participante",
@@ -64,9 +64,13 @@ const notificarNuevaActividad = (actividad) =>
       "fcmTokens.0": { $exists: true },
     }).select("fcmTokens");
 
+    const adicionales = cantidadFechas - 1;
+    const extra =
+      adicionales > 0 ? ` y ${adicionales} ${adicionales === 1 ? "fecha más" : "fechas más"}` : "";
+
     await enviar(tokensDe(interesados), {
       titulo: `Nueva actividad de ${actividad.disciplina}`,
-      cuerpo: `${actividad.titulo}, ${fechaHora(actividad.fechaInicio)} h`,
+      cuerpo: `${actividad.titulo}, ${fechaHora(actividad.fechaInicio)} h${extra}`,
       url: `/evento/${actividad._id}`,
       tipo: "nueva-actividad",
     });

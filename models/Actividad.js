@@ -87,7 +87,11 @@ const actividadSchema = new mongoose.Schema({
     type: Number, default: 0, min: 0, max: 5 },
   totalResenas: { 
     type: Number, default: 0 },
-}, {
+  serieId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    index: true },
+},
+ {
   timestamps: true,
 });
 

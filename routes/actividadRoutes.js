@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const {
-  buscarActividades, obtenerActividad, crearActividad,
+  buscarActividades, obtenerActividad, crearActividad, crearActividadesMultiples,
   misActividades, actualizarActividad, eliminarActividad,
 } = require("../controllers/actividadController");
 const { verificarToken, tokenOpcional, soloOrganizador } = require("../middleware/auth");
@@ -10,6 +10,7 @@ router.get("/", buscarActividades);
 router.get("/mis-actividades", verificarToken, soloOrganizador, misActividades); // antes de "/:id"
 router.get("/:id", tokenOpcional, obtenerActividad);
 router.post("/", verificarToken, soloOrganizador, crearActividad);
+router.post("/multiples", verificarToken, soloOrganizador, crearActividadesMultiples);
 router.put("/:id", verificarToken, soloOrganizador, actualizarActividad);
 router.delete("/:id", verificarToken, soloOrganizador, eliminarActividad);
 

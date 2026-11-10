@@ -320,6 +320,94 @@ const eliminarActividad = async (req, res) => {
   }
 };
 
+const MAX_FECHAS = 12;
+
+// POST /api/actividades/multiples (crear varias fechas o duplicar una actividad)
+const crearActividadesMultiples = async (req, res) => {
+  try {
+    const { fechas, origenId, mismaSerie } = req.body;
+
+    if (!Array.isArray(fechas) || fechas.length < 1 || fechas.length > MAX_FECHAS) {
+      return res.status(400).json({ mensaje: `Indica entre 1 y ${MAX_FECHAS} fechas` });
+    }
+
+    const base = {};
+    CAMPOS_EDITABLES.forEach((campo) => {
+      if (campo !== "fechaInicio" && campo !== "fechaFin" && req.body[campo] !== undefined) {
+        base[campo] = req.body[campo];
+      }
+    });
+    base.organizadorId = req.usuario.userId;
+    base.cuposDisponibles = base.cupoMaximo;
+    base.estado = req.body.estado === "borrador" ? "borrador" : "activa";
+
+    if (!coordenadasValidas(base.ubicacion)) delete base.ubicacion;
+    if (base.modalidad === "virtual") delete base.ubicacion;
+    if (base.modalidad === "presencial" && !base.ubicacion) {
+      return res.status(400).json({ mensaje: "Las actividades presenciales requieren ubicación" });
+    }
+
+    // Validación de las fechas
+    const ahora = new Date();
+    const vistas = new Set();
+    const periodos = [];
+    for (const f of fechas) {
+      const inicio = new Date(f?.fechaInicio);
+      const fin = new Date(f?.fechaFin);
+      if (isNaN(inicio.getTime()) || isNaN(fin.getTime())) {
+        return res.status(400).json({ mensaje: "Hay una fecha inválida" });
+      }
+      if (fin < inicio) {
+        return res.status(400).json({ mensaje: "En una de las fechas el término es anterior al inicio" });
+      }
+      if (base.estado === "activa" && fin < ahora) {
+        return res.status(400).json({ mensaje: "No se pueden publicar fechas que ya pasaron" });
+      }
+      if (vistas.has(inicio.getTime())) {
+        return res.status(400).json({ mensaje: "Hay fechas repetidas" });
+      }
+      vistas.add(inicio.getTime());
+      periodos.push({ fechaInicio: inicio, fechaFin: fin });
+    }
+    periodos.sort((a, b) => a.fechaInicio - b.fechaInicio);
+
+    // Serie: se hereda la de la actividad original, o se crea una nueva si hay varias fechas
+    let origen = null;
+    let serieId = null;
+    const hayOrigen = origenId !== undefined && origenId !== null && origenId !== "";
+
+    if (hayOrigen) {
+      if (!mongoose.isValidObjectId(origenId)) {
+        return res.status(400).json({ mensaje: "Actividad de origen inválida" });
+      }
+      origen = await Actividad.findById(origenId);
+      if (!origen || origen.estado === "eliminada" || origen.organizadorId.toString() !== req.usuario.userId) {
+        return res.status(404).json({ mensaje: "Actividad de origen no encontrada" });
+      }
+      if (mismaSerie !== false) serieId = origen.serieId || origen._id;
+    } else if (periodos.length > 1) {
+      serieId = new mongoose.Types.ObjectId();
+    }
+    if (serieId) base.serieId = serieId;
+
+    // Se valida todo antes de guardar, para no crear solo una parte
+    const documentos = periodos.map((p) => new Actividad({ ...base, ...p }));
+    await Promise.all(documentos.map((d) => d.validate()));
+    const creadas = await Actividad.insertMany(documentos);
+
+    // Si la original no tenía serie, se le asigna ahora para enlazarla con las copias
+    if (origen && serieId && !origen.serieId) {
+      await Actividad.updateOne({ _id: origen._id }, { serieId });
+    }
+
+    if (creadas[0].estado === "activa") notificarNuevaActividad(creadas[0], creadas.length);
+
+    res.status(201).json({ total: creadas.length, actividades: creadas });
+  } catch (error) {
+    responderError(res, error, "creación de varias fechas");
+  }
+};
+
 module.exports = {
   buscarActividades,
   obtenerActividad,
@@ -327,4 +415,5 @@ module.exports = {
   misActividades,
   actualizarActividad,
   eliminarActividad,
+  crearActividadesMultiples
 };
