@@ -1,0 +1,397 @@
+############################################################
+# Solee API - Pruebas 3 de 3: analitica, notificaciones, eliminacion y limpieza
+# Requisito: las cuentas QA del archivo 01. Ejecuta de arriba hacia abajo.
+# Las notificaciones reales (que llegue el aviso al navegador) se prueban desde la pagina:
+# aqui solo se verifica la API de preferencias y dispositivos.
+############################################################
+
+############################################################
+# COBERTURA POR HISTORIA DE USUARIO
+# US-17 Estadisticas y visualizaciones: 1.1 a 1.15
+# US-13 Notificaciones (preferencias y dispositivos): 2.1 a 2.18
+# US-11 y US-15 Eliminar una actividad con reservas: 3.1 a 3.14
+# Seguridad de la sesion: 4.1 y 4.2
+# Limpieza de datos de prueba: 5.1 a 5.3
+############################################################
+
+@baseUrl = http://localhost:5000/api
+@clave = Prueba1234
+@tokenFalso = qa-dispositivo-de-prueba-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+############################################################
+# 0. SESIONES. Envia los cuatro
+############################################################
+
+### 0.1 Organizador -> esperado 200
+# @name loginOrg
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "qa.org@solee.com", "password": "{{clave}}" }
+
+### 0.2 Participante 1 -> esperado 200
+# @name loginPart1
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "qa.part1@solee.com", "password": "{{clave}}" }
+
+### 0.3 Participante 2 -> esperado 200
+# @name loginPart2
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "qa.part2@solee.com", "password": "{{clave}}" }
+
+### 0.4 Otro organizador -> esperado 200
+# @name loginOrg2
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "qa.org2@solee.com", "password": "{{clave}}" }
+
+############################################################
+# 1. ANALITICA: VISUALIZACIONES (US-17)
+############################################################
+
+### 1.1 Actividad para medir visitas -> esperado 201
+# @name actVisitas
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "titulo": "QA Para medir visitas",
+  "descripcion": "Actividad de prueba para contar visualizaciones.",
+  "disciplina": "otros",
+  "nivel": "todos los niveles",
+  "modalidad": "virtual",
+  "precio": 0,
+  "cupoMaximo": 5,
+  "direccionTexto": "Zoom",
+  "horario": "tarde",
+  "fechaInicio": "{{$datetime iso8601 48 h}}",
+  "fechaFin": "{{$datetime iso8601 50 h}}"
+}
+
+### 1.2 Registrar vista sin token -> esperado 401
+POST {{baseUrl}}/analiticas/vistas
+Content-Type: application/json
+
+{ "actividadId": "{{actVisitas.response.body.$._id}}" }
+
+### 1.3 Registrar vista como organizador -> esperado 403 (las visitas de organizadores no cuentan)
+POST {{baseUrl}}/analiticas/vistas
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "actividadId": "{{actVisitas.response.body.$._id}}" }
+
+### 1.4 Id invalido -> esperado 400
+POST {{baseUrl}}/analiticas/vistas
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actividadId": "abc123" }
+
+### 1.5 Actividad que no existe -> esperado 204 (no registra nada y no revela que no existe)
+POST {{baseUrl}}/analiticas/vistas
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actividadId": "000000000000000000000000" }
+
+### 1.6 Vista del participante 1 -> esperado 204
+POST {{baseUrl}}/analiticas/vistas
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actividadId": "{{actVisitas.response.body.$._id}}" }
+
+### 1.7 La misma persona otra vez, dentro de los 30 minutos -> esperado 204, pero NO suma
+POST {{baseUrl}}/analiticas/vistas
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actividadId": "{{actVisitas.response.body.$._id}}" }
+
+### 1.8 Vista del participante 2 -> esperado 204
+POST {{baseUrl}}/analiticas/vistas
+Content-Type: application/json
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+{ "actividadId": "{{actVisitas.response.body.$._id}}" }
+
+### 1.9 Resumen del organizador -> esperado 200: en "porActividad" el id de esta actividad vale 2 (no 3)
+GET {{baseUrl}}/analiticas/organizador
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+### 1.10 Resumen sin token -> esperado 401
+GET {{baseUrl}}/analiticas/organizador
+
+### 1.11 Resumen como participante -> esperado 403
+GET {{baseUrl}}/analiticas/organizador
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+### 1.12 Resumen de OTRO organizador -> esperado 200 y "porActividad" NO trae el id de la actividad de qa.org
+GET {{baseUrl}}/analiticas/organizador
+Authorization: Bearer {{loginOrg2.response.body.$.token}}
+
+### 1.13 Crear un borrador -> esperado 201, estado "borrador"
+# @name actBorradorVisitas
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "titulo": "QA Borrador sin visitas",
+  "descripcion": "Los borradores no cuentan visitas.",
+  "disciplina": "otros",
+  "nivel": "todos los niveles",
+  "modalidad": "virtual",
+  "precio": 0,
+  "cupoMaximo": 5,
+  "direccionTexto": "Zoom",
+  "horario": "tarde",
+  "estado": "borrador",
+  "fechaInicio": "{{$datetime iso8601 96 h}}",
+  "fechaFin": "{{$datetime iso8601 98 h}}"
+}
+
+### 1.14 Vista de un borrador -> esperado 204
+POST {{baseUrl}}/analiticas/vistas
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actividadId": "{{actBorradorVisitas.response.body.$._id}}" }
+
+### 1.15 El borrador no suma -> esperado 200 y "porActividad" NO trae el id del borrador
+GET {{baseUrl}}/analiticas/organizador
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+############################################################
+# 2. NOTIFICACIONES: PREFERENCIAS Y DISPOSITIVOS (US-13)
+############################################################
+
+### 2.1 Preferencias sin token -> esperado 401
+GET {{baseUrl}}/notificaciones/preferencias
+
+### 2.2 Preferencias del participante 1 -> esperado 200 con intereses ["teatro","música"] y "servicioActivo": true si Firebase esta activo
+GET {{baseUrl}}/notificaciones/preferencias
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+### 2.3 Preferencias del organizador -> esperado 200 con "intereses": []
+GET {{baseUrl}}/notificaciones/preferencias
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+### 2.4 Cambiar disciplinas de interes -> esperado 200 con ["danza","teatro"]
+PUT {{baseUrl}}/notificaciones/intereses
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "intereses": ["danza", "teatro", "danza"] }
+
+### 2.5 Disciplina que no existe -> esperado 400
+PUT {{baseUrl}}/notificaciones/intereses
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "intereses": ["cocina"] }
+
+### 2.6 Los intereses no son una lista -> esperado 400
+PUT {{baseUrl}}/notificaciones/intereses
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "intereses": "teatro" }
+
+### 2.7 Un organizador no puede cambiar intereses -> esperado 403
+PUT {{baseUrl}}/notificaciones/intereses
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "intereses": ["teatro"] }
+
+### 2.8 Dejar los intereses como estaban -> esperado 200 con ["teatro","música"]
+PUT {{baseUrl}}/notificaciones/intereses
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "intereses": ["teatro", "música"] }
+
+### 2.9 Identificador de dispositivo demasiado corto -> esperado 400
+POST {{baseUrl}}/notificaciones/suscribir
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "token": "corto" }
+
+### 2.10 Registrar un dispositivo de prueba (participante 1) -> esperado 200
+POST {{baseUrl}}/notificaciones/suscribir
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "token": "{{tokenFalso}}" }
+
+### 2.11 Estado del dispositivo para el participante 1 -> esperado 200 con "registrado": true
+POST {{baseUrl}}/notificaciones/estado
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "token": "{{tokenFalso}}" }
+
+### 2.12 El mismo dispositivo en OTRA cuenta (participante 2) -> esperado 200
+POST {{baseUrl}}/notificaciones/suscribir
+Content-Type: application/json
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+{ "token": "{{tokenFalso}}" }
+
+### 2.13 El participante 1 ya no lo tiene -> esperado 200 con "registrado": false (un dispositivo pertenece a una sola cuenta)
+POST {{baseUrl}}/notificaciones/estado
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "token": "{{tokenFalso}}" }
+
+### 2.14 El participante 2 si lo tiene -> esperado 200 con "registrado": true
+POST {{baseUrl}}/notificaciones/estado
+Content-Type: application/json
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+{ "token": "{{tokenFalso}}" }
+
+### 2.15 Desactivar el dispositivo (participante 2) -> esperado 200
+POST {{baseUrl}}/notificaciones/desuscribir
+Content-Type: application/json
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+{ "token": "{{tokenFalso}}" }
+
+### 2.16 Ya no esta registrado -> esperado 200 con "registrado": false
+POST {{baseUrl}}/notificaciones/estado
+Content-Type: application/json
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+{ "token": "{{tokenFalso}}" }
+
+### 2.17 Notificacion de prueba sin dispositivos -> esperado 409 (503 si Firebase no esta activo en el servidor)
+POST {{baseUrl}}/notificaciones/prueba
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+### 2.18 Notificacion de prueba sin token -> esperado 401
+POST {{baseUrl}}/notificaciones/prueba
+
+############################################################
+# 3. ELIMINAR UNA ACTIVIDAD CON RESERVAS (US-11, US-15)
+############################################################
+
+### 3.1 Actividad con reservas -> esperado 201
+# @name actEliminar
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "titulo": "QA Para eliminar",
+  "descripcion": "Actividad de prueba que se elimina con reservas.",
+  "disciplina": "teatro",
+  "nivel": "todos los niveles",
+  "modalidad": "virtual",
+  "precio": 0,
+  "cupoMaximo": 3,
+  "direccionTexto": "Zoom",
+  "horario": "noche",
+  "fechaInicio": "{{$datetime iso8601 72 h}}",
+  "fechaFin": "{{$datetime iso8601 74 h}}"
+}
+
+### 3.2 Reserva del participante 1 -> esperado 201
+# @name resElimP1
+POST {{baseUrl}}/reservas
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actividadId": "{{actEliminar.response.body.$._id}}" }
+
+### 3.3 Reserva del participante 2 -> esperado 201
+POST {{baseUrl}}/reservas
+Content-Type: application/json
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+{ "actividadId": "{{actEliminar.response.body.$._id}}" }
+
+### 3.4 Eliminar con otro organizador -> esperado 403
+DELETE {{baseUrl}}/actividades/{{actEliminar.response.body.$._id}}
+Authorization: Bearer {{loginOrg2.response.body.$.token}}
+
+### 3.5 Eliminar como participante -> esperado 403
+DELETE {{baseUrl}}/actividades/{{actEliminar.response.body.$._id}}
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+### 3.6 Eliminar sin token -> esperado 401
+DELETE {{baseUrl}}/actividades/{{actEliminar.response.body.$._id}}
+
+### 3.7 Eliminar siendo la duena -> esperado 200 con "reservasCanceladas": 2
+DELETE {{baseUrl}}/actividades/{{actEliminar.response.body.$._id}}
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+### 3.8 El detalle ya no existe -> esperado 404
+GET {{baseUrl}}/actividades/{{actEliminar.response.body.$._id}}
+
+### 3.9 No aparece en la busqueda -> esperado: ninguna entrada llamada "QA Para eliminar"
+GET {{baseUrl}}/actividades?disciplina=teatro
+
+### 3.10 Mis reservas del participante 1 -> esperado 200: la reserva figura "cancelada" y su actividad con "estado": "eliminada"
+GET {{baseUrl}}/reservas/mis-reservas
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+### 3.11 Inscritos de una actividad eliminada -> esperado 404
+GET {{baseUrl}}/reservas/actividad/{{actEliminar.response.body.$._id}}
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+### 3.12 Eliminar de nuevo -> esperado 404
+DELETE {{baseUrl}}/actividades/{{actEliminar.response.body.$._id}}
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+### 3.13 Reservar una actividad eliminada -> esperado 404
+POST {{baseUrl}}/reservas
+Content-Type: application/json
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+{ "actividadId": "{{actEliminar.response.body.$._id}}" }
+
+### 3.14 Editar una actividad eliminada -> esperado 404
+PUT {{baseUrl}}/actividades/{{actEliminar.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "precio": 1000 }
+
+############################################################
+# 4. SEGURIDAD DE LA SESION
+############################################################
+
+### 4.1 Token inventado -> esperado 401 "Token invalido o expirado"
+GET {{baseUrl}}/actividades/mis-actividades
+Authorization: Bearer token-inventado-123
+
+### 4.2 Encabezado sin la palabra Bearer -> esperado 401 "Token no proporcionado"
+GET {{baseUrl}}/actividades/mis-actividades
+Authorization: {{loginOrg.response.body.$.token}}
+
+############################################################
+# 5. LIMPIEZA
+############################################################
+
+### 5.1 Eliminar la actividad de visitas -> esperado 200
+DELETE {{baseUrl}}/actividades/{{actVisitas.response.body.$._id}}
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+### 5.2 Eliminar el borrador de visitas -> esperado 200
+DELETE {{baseUrl}}/actividades/{{actBorradorVisitas.response.body.$._id}}
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+### 5.3 Lo que queda de las pruebas del organizador QA -> esperado 200: actividades "QA ..." de los archivos 1 y 2 para borrar desde el panel
+GET {{baseUrl}}/actividades/mis-actividades
+Authorization: Bearer {{loginOrg.response.body.$.token}}
