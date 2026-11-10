@@ -1,0 +1,611 @@
+############################################################
+# Solee API - Pruebas 2 de 3: reservas, asistencia, resenas y series
+# Requisito: las cuentas QA del archivo 01 (qa.org, qa.part1, qa.part2, qa.org2).
+# Las variables "# @name" valen solo dentro de cada archivo, por eso aqui se inicia
+# sesion de nuevo. Ejecuta de arriba hacia abajo: cada seccion depende de la anterior.
+# Para repetir todo, vuelve a empezar desde el principio: las actividades se crean de nuevo.
+############################################################
+
+############################################################
+# COBERTURA POR HISTORIA DE USUARIO
+# US-09 Reservas, cancelacion y cupos: 1.1 a 1.20
+# US-14 Historial de reservas (mis reservas): 1.10 y 1.11
+# US-15 Reservas recibidas por el organizador: 2.1 a 2.5
+# US-14 Asistencia: 3.1 a 3.13
+# US-16 Resenas y promedio: 4.1 a 4.14
+# US-10 Varias fechas y duplicar: 5.1 a 5.7 y 5.13 a 5.15
+# US-19 Calificacion compartida por serie: 5.8 a 5.12
+############################################################
+
+@baseUrl = http://localhost:5000/api
+@clave = Prueba1234
+
+############################################################
+# 0. SESIONES. Envia los cuatro
+############################################################
+
+### 0.1 Organizador -> esperado 200
+# @name loginOrg
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "qa.org@solee.com", "password": "{{clave}}" }
+
+### 0.2 Participante 1 -> esperado 200
+# @name loginPart1
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "qa.part1@solee.com", "password": "{{clave}}" }
+
+### 0.3 Participante 2 -> esperado 200
+# @name loginPart2
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "qa.part2@solee.com", "password": "{{clave}}" }
+
+### 0.4 Otro organizador -> esperado 200
+# @name loginOrg2
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "qa.org2@solee.com", "password": "{{clave}}" }
+
+############################################################
+# 1. RESERVAS (US-09)
+############################################################
+
+### 1.1 Actividad con UN solo cupo -> esperado 201, cuposDisponibles 1
+# @name actCupo
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "titulo": "QA Cupo unico",
+  "descripcion": "Actividad de prueba con un solo cupo.",
+  "disciplina": "fotografía",
+  "nivel": "todos los niveles",
+  "modalidad": "virtual",
+  "precio": 0,
+  "cupoMaximo": 1,
+  "direccionTexto": "Zoom",
+  "horario": "tarde",
+  "fechaInicio": "{{$datetime iso8601 48 h}}",
+  "fechaFin": "{{$datetime iso8601 50 h}}"
+}
+
+### 1.2 Reservar sin token -> esperado 401
+POST {{baseUrl}}/reservas
+Content-Type: application/json
+
+{ "actividadId": "{{actCupo.response.body.$._id}}" }
+
+### 1.3 Reservar como organizador -> esperado 403
+POST {{baseUrl}}/reservas
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "actividadId": "{{actCupo.response.body.$._id}}" }
+
+### 1.4 Id invalido -> esperado 400
+POST {{baseUrl}}/reservas
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actividadId": "abc123" }
+
+### 1.5 Actividad que no existe -> esperado 404
+POST {{baseUrl}}/reservas
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actividadId": "000000000000000000000000" }
+
+### 1.6 Reservar el unico cupo (participante 1) -> esperado 201 con codigoQR y cuposDisponibles 0
+# @name resP1
+POST {{baseUrl}}/reservas
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actividadId": "{{actCupo.response.body.$._id}}" }
+
+### 1.7 Reservar la misma otra vez -> esperado 409 "Ya tienes una reserva"
+POST {{baseUrl}}/reservas
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actividadId": "{{actCupo.response.body.$._id}}" }
+
+### 1.8 Otro participante sin cupos -> esperado 409 "sin cupos disponibles"
+POST {{baseUrl}}/reservas
+Content-Type: application/json
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+{ "actividadId": "{{actCupo.response.body.$._id}}" }
+
+### 1.9 El detalle muestra cuposDisponibles 0
+GET {{baseUrl}}/actividades/{{actCupo.response.body.$._id}}
+
+### 1.10 Mis reservas del participante 1 -> esperado 200 con la actividad dentro y "miResena": null
+GET {{baseUrl}}/reservas/mis-reservas
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+### 1.11 Mis reservas como organizador -> esperado 403
+GET {{baseUrl}}/reservas/mis-reservas
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+### 1.12 Cancelar la reserva de otra persona -> esperado 404
+PUT {{baseUrl}}/reservas/{{resP1.response.body.$.reserva.id}}/cancelar
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+### 1.13 Cancelar mi reserva -> esperado 200, estado "cancelada"
+PUT {{baseUrl}}/reservas/{{resP1.response.body.$.reserva.id}}/cancelar
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+### 1.14 Cancelar de nuevo -> esperado 409
+PUT {{baseUrl}}/reservas/{{resP1.response.body.$.reserva.id}}/cancelar
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+### 1.15 El cupo se devolvio: cuposDisponibles 1
+GET {{baseUrl}}/actividades/{{actCupo.response.body.$._id}}
+
+### 1.16 Ahora el participante 2 si puede reservar -> esperado 201
+# @name resP2
+POST {{baseUrl}}/reservas
+Content-Type: application/json
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+{ "actividadId": "{{actCupo.response.body.$._id}}" }
+
+### 1.17 El participante 1 vuelve a intentar -> esperado 409 sin cupos (lo ocupa el participante 2)
+POST {{baseUrl}}/reservas
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actividadId": "{{actCupo.response.body.$._id}}" }
+
+### 1.18 Actividad pausada para probar que no se puede reservar -> esperado 201
+# @name actPausada
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "titulo": "QA Pausada",
+  "descripcion": "Actividad de prueba que se pausa.",
+  "disciplina": "otros",
+  "nivel": "todos los niveles",
+  "modalidad": "virtual",
+  "precio": 0,
+  "cupoMaximo": 3,
+  "direccionTexto": "Zoom",
+  "horario": "noche",
+  "fechaInicio": "{{$datetime iso8601 72 h}}",
+  "fechaFin": "{{$datetime iso8601 74 h}}"
+}
+
+### 1.19 Pausarla -> esperado 200
+PUT {{baseUrl}}/actividades/{{actPausada.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "estado": "pausada" }
+
+### 1.20 Reservar una pausada -> esperado 409 "La actividad no esta disponible"
+POST {{baseUrl}}/reservas
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actividadId": "{{actPausada.response.body.$._id}}" }
+
+############################################################
+# 2. RESERVAS RECIBIDAS POR EL ORGANIZADOR (US-15)
+############################################################
+
+### 2.1 Inscritos de la actividad por su duena -> esperado 200: P2 "confirmada" y P1 "cancelada", solo nombre y correo
+GET {{baseUrl}}/reservas/actividad/{{actCupo.response.body.$._id}}
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+### 2.2 Inscritos de una actividad ajena -> esperado 403
+GET {{baseUrl}}/reservas/actividad/{{actCupo.response.body.$._id}}
+Authorization: Bearer {{loginOrg2.response.body.$.token}}
+
+### 2.3 Inscritos como participante -> esperado 403
+GET {{baseUrl}}/reservas/actividad/{{actCupo.response.body.$._id}}
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+### 2.4 Inscritos sin token -> esperado 401
+GET {{baseUrl}}/reservas/actividad/{{actCupo.response.body.$._id}}
+
+### 2.5 Id invalido -> esperado 404
+GET {{baseUrl}}/reservas/actividad/abc123
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+############################################################
+# 3. ASISTENCIA (US-14). La actividad "empieza" moviendo sus fechas al pasado
+############################################################
+
+### 3.1 Marcar asistencia ANTES de que comience -> esperado 409
+PUT {{baseUrl}}/reservas/{{resP2.response.body.$.reserva.id}}/asistencia
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "estado": "asistió" }
+
+### 3.2 Mover la actividad al pasado -> esperado 200
+PUT {{baseUrl}}/actividades/{{actCupo.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "fechaInicio": "2026-01-10T15:00:00.000Z",
+  "fechaFin": "2026-01-10T17:00:00.000Z"
+}
+
+### 3.3 Cancelar una reserva de una actividad que ya comenzo -> esperado 409
+PUT {{baseUrl}}/reservas/{{resP2.response.body.$.reserva.id}}/cancelar
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+### 3.4 Reservar una actividad que ya comenzo -> esperado 409 "La actividad ya comenzo"
+POST {{baseUrl}}/reservas
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actividadId": "{{actCupo.response.body.$._id}}" }
+
+### 3.5 Asistencia sin token -> esperado 401
+PUT {{baseUrl}}/reservas/{{resP2.response.body.$.reserva.id}}/asistencia
+Content-Type: application/json
+
+{ "estado": "asistió" }
+
+### 3.6 Asistencia como participante -> esperado 403
+PUT {{baseUrl}}/reservas/{{resP2.response.body.$.reserva.id}}/asistencia
+Content-Type: application/json
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+{ "estado": "asistió" }
+
+### 3.7 Asistencia por un organizador que no es el dueno -> esperado 403
+PUT {{baseUrl}}/reservas/{{resP2.response.body.$.reserva.id}}/asistencia
+Content-Type: application/json
+Authorization: Bearer {{loginOrg2.response.body.$.token}}
+
+{ "estado": "asistió" }
+
+### 3.8 Estado invalido -> esperado 400
+PUT {{baseUrl}}/reservas/{{resP2.response.body.$.reserva.id}}/asistencia
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "estado": "cancelada" }
+
+### 3.9 Reserva que no existe -> esperado 404
+PUT {{baseUrl}}/reservas/000000000000000000000000/asistencia
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "estado": "asistió" }
+
+### 3.10 Reserva cancelada -> esperado 409 "Esta reserva esta cancelada"
+PUT {{baseUrl}}/reservas/{{resP1.response.body.$.reserva.id}}/asistencia
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "estado": "asistió" }
+
+### 3.11 Marcar "no asistio" -> esperado 200
+PUT {{baseUrl}}/reservas/{{resP2.response.body.$.reserva.id}}/asistencia
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "estado": "no asistió" }
+
+### 3.12 Corregir a "asistio" -> esperado 200, estado "asistió"
+PUT {{baseUrl}}/reservas/{{resP2.response.body.$.reserva.id}}/asistencia
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "estado": "asistió" }
+
+### 3.13 Los inscritos reflejan la asistencia -> esperado 200, P2 "asistió"
+GET {{baseUrl}}/reservas/actividad/{{actCupo.response.body.$._id}}
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+############################################################
+# 4. RESENAS (US-16)
+############################################################
+
+### 4.1 Resenar sin haber asistido (participante 1, reserva cancelada) -> esperado 403
+POST {{baseUrl}}/resenas
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actividadId": "{{actCupo.response.body.$._id}}", "calificacion": 5 }
+
+### 4.2 Resenar sin token -> esperado 401
+POST {{baseUrl}}/resenas
+Content-Type: application/json
+
+{ "actividadId": "{{actCupo.response.body.$._id}}", "calificacion": 5 }
+
+### 4.3 Resenar como organizador -> esperado 403
+POST {{baseUrl}}/resenas
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "actividadId": "{{actCupo.response.body.$._id}}", "calificacion": 5 }
+
+### 4.4 Calificacion fuera de rango -> esperado 400
+POST {{baseUrl}}/resenas
+Content-Type: application/json
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+{ "actividadId": "{{actCupo.response.body.$._id}}", "calificacion": 7 }
+
+### 4.5 Calificacion no entera -> esperado 400
+POST {{baseUrl}}/resenas
+Content-Type: application/json
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+{ "actividadId": "{{actCupo.response.body.$._id}}", "calificacion": 3.5 }
+
+### 4.6 Resenar habiendo asistido -> esperado 201
+# @name resenaP2
+POST {{baseUrl}}/resenas
+Content-Type: application/json
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+{ "actividadId": "{{actCupo.response.body.$._id}}", "calificacion": 5, "comentario": "Muy buena experiencia" }
+
+### 4.7 Segunda resena de la misma persona -> esperado 409
+POST {{baseUrl}}/resenas
+Content-Type: application/json
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+{ "actividadId": "{{actCupo.response.body.$._id}}", "calificacion": 4 }
+
+### 4.8 Listado publico, sin sesion -> esperado 200: promedio 5, total 1, puedeResenar false, autor solo con el primer nombre
+GET {{baseUrl}}/resenas/actividad/{{actCupo.response.body.$._id}}
+
+### 4.9 Listado como participante 2 -> esperado 200: puedeResenar true y "miResena" con datos
+GET {{baseUrl}}/resenas/actividad/{{actCupo.response.body.$._id}}
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+### 4.10 Listado como participante 1 -> esperado 200: puedeResenar false y "miResena": null
+GET {{baseUrl}}/resenas/actividad/{{actCupo.response.body.$._id}}
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+### 4.11 Editar una resena ajena -> esperado 404
+PUT {{baseUrl}}/resenas/{{resenaP2.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "calificacion": 1 }
+
+### 4.12 Editar mi resena -> esperado 200
+PUT {{baseUrl}}/resenas/{{resenaP2.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginPart2.response.body.$.token}}
+
+{ "calificacion": 4, "comentario": "Muy buena, pero empezo tarde" }
+
+### 4.13 El promedio se recalculo -> esperado calificacionPromedio 4 y totalResenas 1
+GET {{baseUrl}}/actividades/{{actCupo.response.body.$._id}}
+
+### 4.14 Listado de una actividad que no existe -> esperado 404
+GET {{baseUrl}}/resenas/actividad/000000000000000000000000
+
+############################################################
+# 5. SERIES Y DUPLICADOS (US-10, US-19)
+############################################################
+
+### 5.1 Crear tres fechas de una vez -> esperado 201, total 3 y las tres con el mismo serieId
+# @name serieSemanal
+POST {{baseUrl}}/actividades/multiples
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "titulo": "QA Serie semanal",
+  "descripcion": "Actividad de prueba que se repite.",
+  "disciplina": "cerámica",
+  "nivel": "principiante",
+  "modalidad": "virtual",
+  "precio": 0,
+  "cupoMaximo": 10,
+  "direccionTexto": "Zoom",
+  "horario": "tarde",
+  "estado": "activa",
+  "fechas": [
+    { "fechaInicio": "{{$datetime iso8601 120 h}}", "fechaFin": "{{$datetime iso8601 122 h}}" },
+    { "fechaInicio": "{{$datetime iso8601 288 h}}", "fechaFin": "{{$datetime iso8601 290 h}}" },
+    { "fechaInicio": "{{$datetime iso8601 456 h}}", "fechaFin": "{{$datetime iso8601 458 h}}" }
+  ]
+}
+
+### 5.2 Sin token -> esperado 401
+POST {{baseUrl}}/actividades/multiples
+Content-Type: application/json
+
+{ "titulo": "QA sin token" }
+
+### 5.3 Como participante -> esperado 403
+POST {{baseUrl}}/actividades/multiples
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "fechas": [] }
+
+### 5.4 Mas de 12 fechas -> esperado 400
+POST {{baseUrl}}/actividades/multiples
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "fechas": [1,2,3,4,5,6,7,8,9,10,11,12,13] }
+
+### 5.5 Fechas repetidas -> esperado 400
+POST {{baseUrl}}/actividades/multiples
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "titulo": "QA fechas repetidas",
+  "descripcion": "Prueba",
+  "disciplina": "danza",
+  "nivel": "principiante",
+  "modalidad": "virtual",
+  "precio": 0,
+  "cupoMaximo": 5,
+  "direccionTexto": "Zoom",
+  "horario": "noche",
+  "fechas": [
+    { "fechaInicio": "{{$datetime iso8601 100 h}}", "fechaFin": "{{$datetime iso8601 102 h}}" },
+    { "fechaInicio": "{{$datetime iso8601 100 h}}", "fechaFin": "{{$datetime iso8601 103 h}}" }
+  ]
+}
+
+### 5.6 Termino anterior al inicio -> esperado 400
+POST {{baseUrl}}/actividades/multiples
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "titulo": "QA fechas invertidas",
+  "descripcion": "Prueba",
+  "disciplina": "danza",
+  "nivel": "principiante",
+  "modalidad": "virtual",
+  "precio": 0,
+  "cupoMaximo": 5,
+  "direccionTexto": "Zoom",
+  "horario": "noche",
+  "fechas": [
+    { "fechaInicio": "{{$datetime iso8601 102 h}}", "fechaFin": "{{$datetime iso8601 100 h}}" }
+  ]
+}
+
+### 5.7 Publicar una fecha que ya paso -> esperado 400 "No se pueden publicar fechas que ya pasaron"
+POST {{baseUrl}}/actividades/multiples
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "titulo": "QA fecha pasada",
+  "descripcion": "Prueba",
+  "disciplina": "danza",
+  "nivel": "principiante",
+  "modalidad": "virtual",
+  "precio": 0,
+  "cupoMaximo": 5,
+  "direccionTexto": "Zoom",
+  "horario": "noche",
+  "estado": "activa",
+  "fechas": [
+    { "fechaInicio": "2026-01-10T15:00:00.000Z", "fechaFin": "2026-01-10T17:00:00.000Z" }
+  ]
+}
+
+### 5.8 Duplicar la actividad que tiene resena (misma serie) -> esperado 201, serieId igual al id del original
+# @name copiaConSerie
+POST {{baseUrl}}/actividades/multiples
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "origenId": "{{actCupo.response.body.$._id}}",
+  "mismaSerie": true,
+  "titulo": "QA Cupo unico",
+  "descripcion": "Actividad de prueba con un solo cupo.",
+  "disciplina": "fotografía",
+  "nivel": "todos los niveles",
+  "modalidad": "virtual",
+  "precio": 0,
+  "cupoMaximo": 1,
+  "direccionTexto": "Zoom",
+  "horario": "tarde",
+  "estado": "activa",
+  "fechas": [
+    { "fechaInicio": "{{$datetime iso8601 168 h}}", "fechaFin": "{{$datetime iso8601 170 h}}" }
+  ]
+}
+
+### 5.9 La copia hereda la calificacion -> esperado calificacionPromedio 4 y totalResenas 1, sin que nadie la haya reseñado
+GET {{baseUrl}}/actividades/{{copiaConSerie.response.body.$.actividades[0]._id}}
+
+### 5.10 El original quedo enlazado -> esperado "serieId" igual a su propio "_id"
+GET {{baseUrl}}/actividades/{{actCupo.response.body.$._id}}
+
+### 5.11 Las resenas de la copia incluyen la del original -> esperado total 1, ediciones 2, y la resena con "deEstaFecha": false
+GET {{baseUrl}}/resenas/actividad/{{copiaConSerie.response.body.$.actividades[0]._id}}
+
+### 5.12 La copia entra en el filtro de calificacion -> esperado: aparece "QA Cupo unico" con promedio 4
+GET {{baseUrl}}/actividades?calificacionMin=4
+
+### 5.13 Duplicar SIN enlazar -> esperado 201, sin serieId y sin calificacion heredada
+# @name copiaSinSerie
+POST {{baseUrl}}/actividades/multiples
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "origenId": "{{actCupo.response.body.$._id}}",
+  "mismaSerie": false,
+  "titulo": "QA Cupo unico (otra actividad)",
+  "descripcion": "Actividad de prueba con un solo cupo.",
+  "disciplina": "fotografía",
+  "nivel": "todos los niveles",
+  "modalidad": "virtual",
+  "precio": 0,
+  "cupoMaximo": 1,
+  "direccionTexto": "Zoom",
+  "horario": "tarde",
+  "estado": "activa",
+  "fechas": [
+    { "fechaInicio": "{{$datetime iso8601 200 h}}", "fechaFin": "{{$datetime iso8601 202 h}}" }
+  ]
+}
+
+### 5.14 Duplicar una actividad ajena -> esperado 404
+POST {{baseUrl}}/actividades/multiples
+Content-Type: application/json
+Authorization: Bearer {{loginOrg2.response.body.$.token}}
+
+{
+  "origenId": "{{actCupo.response.body.$._id}}",
+  "titulo": "QA copia ajena",
+  "descripcion": "Prueba",
+  "disciplina": "fotografía",
+  "nivel": "todos los niveles",
+  "modalidad": "virtual",
+  "precio": 0,
+  "cupoMaximo": 1,
+  "direccionTexto": "Zoom",
+  "horario": "tarde",
+  "fechas": [
+    { "fechaInicio": "{{$datetime iso8601 210 h}}", "fechaFin": "{{$datetime iso8601 212 h}}" }
+  ]
+}
+
+### 5.15 Duplicar una actividad que no existe -> esperado 404
+POST {{baseUrl}}/actividades/multiples
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "origenId": "000000000000000000000000",
+  "titulo": "QA copia fantasma",
+  "descripcion": "Prueba",
+  "disciplina": "fotografía",
+  "nivel": "todos los niveles",
+  "modalidad": "virtual",
+  "precio": 0,
+  "cupoMaximo": 1,
+  "direccionTexto": "Zoom",
+  "horario": "tarde",
+  "fechas": [
+    { "fechaInicio": "{{$datetime iso8601 210 h}}", "fechaFin": "{{$datetime iso8601 212 h}}" }
+  ]
+}
