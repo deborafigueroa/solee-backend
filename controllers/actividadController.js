@@ -26,7 +26,10 @@ const responderError = (res, error, contexto) => {
 // GET /api/actividades
 const buscarActividades = async (req, res) => {
   try {
-    const { disciplina, nivel, precioMin, precioMax, modalidad, horario, lat, lng, radioKm } = req.query;
+    const {
+      disciplina, nivel, precioMin, precioMax, modalidad, horario,
+      lat, lng, radioKm, calificacionMin,
+    } = req.query;
 
     const filtros = { estado: "activa", fechaFin: { $gte: new Date() } };
     if (disciplina) filtros.disciplina = String(disciplina);
@@ -38,6 +41,18 @@ const buscarActividades = async (req, res) => {
       filtros.precio = {};
       if (precioMin) filtros.precio.$gte = Number(precioMin);
       if (precioMax) filtros.precio.$lte = Number(precioMax);
+    }
+
+    // US-19: calificación mínima (solo actividades que tienen reseñas)
+    if (calificacionMin !== undefined && calificacionMin !== "") {
+      const minimo = Number(calificacionMin);
+      if (!Number.isFinite(minimo) || minimo < 0 || minimo > 5) {
+        return res.status(400).json({ mensaje: "Calificación mínima inválida" });
+      }
+      if (minimo > 0) {
+        filtros.calificacionPromedio = { $gte: minimo };
+        filtros.totalResenas = { $gt: 0 };
+      }
     }
 
     const hayUbicacion = lat !== undefined && lat !== "" && lng !== undefined && lng !== "";
