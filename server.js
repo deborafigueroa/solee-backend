@@ -8,6 +8,7 @@ const actividadRoutes = require("./routes/actividadRoutes");
 const reservaRoutes = require("./routes/reservaRoutes");
 const notificacionRoutes = require("./routes/notificacionRoutes");
 const resenaRoutes = require("./routes/resenaRoutes");
+const analiticaRoutes = require("./routes/analiticaRoutes");
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use("/api/actividades", actividadRoutes);
 app.use("/api/reservas", reservaRoutes);
 app.use("/api/notificaciones", notificacionRoutes);
 app.use("/api/resenas", resenaRoutes);
+app.use("/api/analiticas", analiticaRoutes);
 
 // Ruta de prueba
 app.get("/api/health", (req, res) => {
