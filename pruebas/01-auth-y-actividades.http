@@ -1,0 +1,505 @@
+############################################################
+# Solee API - Pruebas 1 de 3: cuentas, actividades y busqueda
+# REST Client no ejecuta todo junto: envia cada bloque en orden con "Send Request"
+# (Ctrl+Alt+R). Las variables "# @name" existen solo despues de enviar esa peticion.
+# Las cuentas QA se crean en la seccion 1: 201 la primera vez y 409 las siguientes.
+############################################################
+
+@baseUrl = http://localhost:5000/api
+@clave = Prueba1234
+
+############################################################
+# 0. SALUD
+############################################################
+
+### 0.1 Salud -> esperado 200 con "bd": "conectada"
+GET {{baseUrl}}/health
+
+############################################################
+# 1. REGISTRO (US-01, US-02, US-03)
+############################################################
+
+### 1.1 Organizador persona natural -> esperado 201 (409 si ya existe)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "nombre": "QA Organizador",
+  "email": "qa.org@solee.com",
+  "password": "{{clave}}",
+  "confirmPassword": "{{clave}}",
+  "rol": "organizador",
+  "tipoCuenta": "persona",
+  "rut": "13.131.313-6",
+  "fechaNacimiento": "1990-03-20",
+  "aceptaTerminos": true
+}
+
+### 1.2 Participante 1 con intereses -> esperado 201 (409 si ya existe)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "nombre": "QA Participante Uno",
+  "email": "qa.part1@solee.com",
+  "password": "{{clave}}",
+  "confirmPassword": "{{clave}}",
+  "rol": "participante",
+  "rut": "14.141.414-3",
+  "fechaNacimiento": "1998-05-14",
+  "telefono": "+56 9 1234 5678",
+  "comuna": "Ñuñoa",
+  "intereses": ["teatro", "música"],
+  "aceptaTerminos": true
+}
+
+### 1.3 Participante 2 -> esperado 201 (409 si ya existe)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "nombre": "QA Participante Dos",
+  "email": "qa.part2@solee.com",
+  "password": "{{clave}}",
+  "confirmPassword": "{{clave}}",
+  "rol": "participante",
+  "rut": "16.161.616-8",
+  "fechaNacimiento": "1996-08-02",
+  "aceptaTerminos": true
+}
+
+### 1.4 Organizacion, sin fecha de nacimiento -> esperado 201 (409 si ya existe)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "nombre": "QA Colectivo",
+  "email": "qa.org2@solee.com",
+  "password": "{{clave}}",
+  "confirmPassword": "{{clave}}",
+  "rol": "organizador",
+  "tipoCuenta": "organizacion",
+  "rut": "77.123.123-3",
+  "aceptaTerminos": true
+}
+
+### 1.5 Correo duplicado -> esperado 409 "Este correo ya esta registrado"
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "nombre": "Otra Persona",
+  "email": "qa.org@solee.com",
+  "password": "{{clave}}",
+  "confirmPassword": "{{clave}}",
+  "rol": "participante",
+  "rut": "17.171.717-5",
+  "fechaNacimiento": "1995-01-10",
+  "aceptaTerminos": true
+}
+
+### 1.6 RUT duplicado con otro correo -> esperado 409 "Ya existe una cuenta con este RUT"
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "nombre": "Otra Persona",
+  "email": "qa.otro@solee.com",
+  "password": "{{clave}}",
+  "confirmPassword": "{{clave}}",
+  "rol": "participante",
+  "rut": "13.131.313-6",
+  "fechaNacimiento": "1995-01-10",
+  "aceptaTerminos": true
+}
+
+### 1.7 RUT con digito verificador incorrecto -> esperado 400
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "nombre": "Rut Malo",
+  "email": "qa.rutmalo@solee.com",
+  "password": "{{clave}}",
+  "confirmPassword": "{{clave}}",
+  "rol": "participante",
+  "rut": "67.880.888-3",
+  "fechaNacimiento": "1995-01-10",
+  "aceptaTerminos": true
+}
+
+### 1.8 Contrasena debil -> esperado 400
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "nombre": "Clave Debil",
+  "email": "qa.debil@solee.com",
+  "password": "abc",
+  "confirmPassword": "abc",
+  "rol": "participante",
+  "rut": "17.171.717-5",
+  "fechaNacimiento": "1995-01-10",
+  "aceptaTerminos": true
+}
+
+### 1.9 Menor de edad -> esperado 400 "Debes ser mayor de 18 anos"
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "nombre": "Menor",
+  "email": "qa.menor@solee.com",
+  "password": "{{clave}}",
+  "confirmPassword": "{{clave}}",
+  "rol": "participante",
+  "rut": "17.171.717-5",
+  "fechaNacimiento": "2015-01-01",
+  "aceptaTerminos": true
+}
+
+### 1.10 Sin aceptar el tratamiento de datos (Ley 19.628) -> esperado 400
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "nombre": "Sin Consentimiento",
+  "email": "qa.sinconsentimiento@solee.com",
+  "password": "{{clave}}",
+  "confirmPassword": "{{clave}}",
+  "rol": "participante",
+  "rut": "17.171.717-5",
+  "fechaNacimiento": "1995-01-10",
+  "aceptaTerminos": false
+}
+
+############################################################
+# 2. LOGIN (US-02). Envia los cuatro: las demas pruebas usan sus tokens
+############################################################
+
+### 2.1 Login organizador -> esperado 200 con token
+# @name loginOrg
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "qa.org@solee.com", "password": "{{clave}}" }
+
+### 2.2 Login participante 1 -> esperado 200
+# @name loginPart1
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "qa.part1@solee.com", "password": "{{clave}}" }
+
+### 2.3 Login participante 2 -> esperado 200
+# @name loginPart2
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "qa.part2@solee.com", "password": "{{clave}}" }
+
+### 2.4 Login organizacion -> esperado 200
+# @name loginOrg2
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "qa.org2@solee.com", "password": "{{clave}}" }
+
+### 2.5 Contrasena incorrecta -> esperado 401 "Credenciales invalidas"
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "qa.org@solee.com", "password": "ClaveMala1" }
+
+### 2.6 Correo que no existe -> esperado 401 con el mismo mensaje
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "noexiste@solee.com", "password": "{{clave}}" }
+
+############################################################
+# 3. PUBLICAR ACTIVIDADES (US-10)
+############################################################
+
+### 3.1 Sin token -> esperado 401
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+
+{ "titulo": "QA sin token" }
+
+### 3.2 Como participante -> esperado 403
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "titulo": "QA rol equivocado" }
+
+### 3.3 Presencial con ubicacion -> esperado 201, estado "activa"
+# @name actPresencial
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "titulo": "QA Clase de danza",
+  "descripcion": "Actividad de prueba presencial.",
+  "disciplina": "danza",
+  "nivel": "principiante",
+  "modalidad": "presencial",
+  "precio": 0,
+  "cupoMaximo": 5,
+  "ubicacion": { "type": "Point", "coordinates": [-70.6180, -33.4372] },
+  "direccionTexto": "Parque Bustamante, Providencia",
+  "instrucciones": "Entrada por el costado norte del parque.",
+  "horario": "tarde",
+  "fechaInicio": "{{$datetime iso8601 48 h}}",
+  "fechaFin": "{{$datetime iso8601 50 h}}"
+}
+
+### 3.4 Presencial sin ubicacion -> esperado 400 "requieren ubicacion"
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "titulo": "QA sin ubicacion",
+  "descripcion": "Prueba",
+  "disciplina": "danza",
+  "nivel": "principiante",
+  "modalidad": "presencial",
+  "precio": 0,
+  "cupoMaximo": 5,
+  "direccionTexto": "Sin pin",
+  "horario": "tarde",
+  "fechaInicio": "{{$datetime iso8601 48 h}}",
+  "fechaFin": "{{$datetime iso8601 50 h}}"
+}
+
+### 3.5 Campos obligatorios faltantes -> esperado 400
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "titulo": "QA incompleta" }
+
+### 3.6 Disciplina fuera de la lista -> esperado 400
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "titulo": "QA disciplina invalida",
+  "descripcion": "Prueba",
+  "disciplina": "cocina",
+  "nivel": "principiante",
+  "modalidad": "virtual",
+  "precio": 0,
+  "cupoMaximo": 5,
+  "direccionTexto": "Zoom",
+  "horario": "tarde",
+  "fechaInicio": "{{$datetime iso8601 48 h}}",
+  "fechaFin": "{{$datetime iso8601 50 h}}"
+}
+
+### 3.7 Termino anterior al inicio -> esperado 400
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "titulo": "QA fechas invertidas",
+  "descripcion": "Prueba",
+  "disciplina": "tejido",
+  "nivel": "principiante",
+  "modalidad": "virtual",
+  "precio": 0,
+  "cupoMaximo": 5,
+  "direccionTexto": "Zoom",
+  "horario": "tarde",
+  "fechaInicio": "{{$datetime iso8601 50 h}}",
+  "fechaFin": "{{$datetime iso8601 48 h}}"
+}
+
+### 3.8 Virtual enviando una ubicacion -> esperado 201 y la respuesta NO trae "ubicacion"
+# @name actVirtual
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "titulo": "QA Taller virtual de tejido",
+  "descripcion": "Actividad de prueba virtual.",
+  "disciplina": "tejido",
+  "nivel": "todos los niveles",
+  "modalidad": "virtual",
+  "precio": 5000,
+  "cupoMaximo": 10,
+  "ubicacion": { "type": "Point", "coordinates": [-70.6693, -33.4489] },
+  "direccionTexto": "Zoom",
+  "horario": "noche",
+  "fechaInicio": "{{$datetime iso8601 72 h}}",
+  "fechaFin": "{{$datetime iso8601 74 h}}"
+}
+
+############################################################
+# 4. BORRADORES (US-10)
+############################################################
+
+### 4.1 Crear borrador -> esperado 201 con estado "borrador"
+# @name actBorrador
+POST {{baseUrl}}/actividades
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "titulo": "QA Borrador de escritura",
+  "descripcion": "Actividad de prueba en borrador.",
+  "disciplina": "escritura",
+  "nivel": "todos los niveles",
+  "modalidad": "virtual",
+  "precio": 0,
+  "cupoMaximo": 10,
+  "direccionTexto": "Zoom",
+  "horario": "tarde",
+  "estado": "borrador",
+  "fechaInicio": "{{$datetime iso8601 96 h}}",
+  "fechaFin": "{{$datetime iso8601 98 h}}"
+}
+
+### 4.2 El borrador no aparece en la busqueda -> esperado: NO esta "QA Borrador de escritura"
+GET {{baseUrl}}/actividades?disciplina=escritura
+
+### 4.3 Detalle del borrador sin sesion -> esperado 404
+GET {{baseUrl}}/actividades/{{actBorrador.response.body.$._id}}
+
+### 4.4 Detalle del borrador por su duena -> esperado 200
+GET {{baseUrl}}/actividades/{{actBorrador.response.body.$._id}}
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+### 4.5 Publicar el borrador -> esperado 200 con estado "activa"
+PUT {{baseUrl}}/actividades/{{actBorrador.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "estado": "activa" }
+
+### 4.6 Ya publicado aparece en la busqueda -> esperado: SI esta "QA Borrador de escritura"
+GET {{baseUrl}}/actividades?disciplina=escritura
+
+############################################################
+# 5. DETALLE Y BUSQUEDA (US-04, US-05, US-06, US-07, US-08, US-18)
+############################################################
+
+### 5.1 Id mal formado -> esperado 404
+GET {{baseUrl}}/actividades/abc123
+
+### 5.2 Sin filtros -> esperado 200
+GET {{baseUrl}}/actividades
+
+### 5.3 Por disciplina -> esperado 200, solo "danza"
+GET {{baseUrl}}/actividades?disciplina=danza
+
+### 5.4 Nivel y modalidad combinados -> esperado 200, incluye "QA Clase de danza"
+GET {{baseUrl}}/actividades?nivel=principiante&modalidad=presencial
+
+### 5.5 Solo gratuitas -> esperado 200, todas con precio 0
+GET {{baseUrl}}/actividades?precioMin=0&precioMax=0
+
+### 5.6 Por horario -> esperado 200, todas de la tarde
+GET {{baseUrl}}/actividades?horario=tarde
+
+### 5.7 Radio de 3 km cerca del Parque Bustamante -> esperado 200, incluye la danza con "distanciaMetros" pequeno y NO las virtuales
+GET {{baseUrl}}/actividades?lat=-33.4372&lng=-70.6180&radioKm=3
+
+### 5.8 Solo ordenar por cercania (sin radio) -> esperado 200, presenciales primero y virtuales al final
+GET {{baseUrl}}/actividades?lat=-33.4372&lng=-70.6180
+
+### 5.9 Coordenadas invalidas -> esperado 400
+GET {{baseUrl}}/actividades?lat=abc&lng=-70.6180
+
+### 5.10 Calificacion minima invalida -> esperado 400
+GET {{baseUrl}}/actividades?calificacionMin=9
+
+############################################################
+# 6. MIS ACTIVIDADES, EDICION Y UBICACION (US-11)
+############################################################
+
+### 6.1 Mis actividades sin token -> esperado 401
+GET {{baseUrl}}/actividades/mis-actividades
+
+### 6.2 Mis actividades como participante -> esperado 403
+GET {{baseUrl}}/actividades/mis-actividades
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+### 6.3 Mis actividades como organizador -> esperado 200, con las actividades QA
+GET {{baseUrl}}/actividades/mis-actividades
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+### 6.4 Editar sin token -> esperado 401
+PUT {{baseUrl}}/actividades/{{actPresencial.response.body.$._id}}
+Content-Type: application/json
+
+{ "precio": 9000 }
+
+### 6.5 Editar con otro organizador -> esperado 403
+PUT {{baseUrl}}/actividades/{{actPresencial.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg2.response.body.$.token}}
+
+{ "precio": 9000 }
+
+### 6.6 Editar siendo la duena -> esperado 200 con el precio y titulo nuevos
+PUT {{baseUrl}}/actividades/{{actPresencial.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "precio": 9000, "titulo": "QA Clase de danza (actualizada)" }
+
+### 6.7 Estado invalido -> esperado 400
+PUT {{baseUrl}}/actividades/{{actPresencial.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "estado": "eliminada" }
+
+### 6.8 Pausar -> esperado 200 con estado "pausada"
+PUT {{baseUrl}}/actividades/{{actPresencial.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "estado": "pausada" }
+
+### 6.9 La pausada no aparece en la busqueda -> esperado: NO esta la danza QA
+GET {{baseUrl}}/actividades?disciplina=danza
+
+### 6.10 Reactivar -> esperado 200 con estado "activa"
+PUT {{baseUrl}}/actividades/{{actPresencial.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "estado": "activa" }
+
+### 6.11 Pasar la virtual a presencial SIN ubicacion -> esperado 400
+PUT {{baseUrl}}/actividades/{{actVirtual.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "modalidad": "presencial" }
+
+### 6.12 Pasar la virtual a presencial CON ubicacion -> esperado 200 y la respuesta trae "ubicacion"
+PUT {{baseUrl}}/actividades/{{actVirtual.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{
+  "modalidad": "presencial",
+  "direccionTexto": "Plaza Nunoa, Nunoa",
+  "ubicacion": { "type": "Point", "coordinates": [-70.5970, -33.4560] }
+}
+
+### 6.13 Volver a virtual -> esperado 200 y la respuesta ya NO trae "ubicacion"
+PUT {{baseUrl}}/actividades/{{actVirtual.response.body.$._id}}
+Content-Type: application/json
+Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+{ "modalidad": "virtual", "direccionTexto": "Zoom" }
