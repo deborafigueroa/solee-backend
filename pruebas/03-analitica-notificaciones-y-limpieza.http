@@ -12,6 +12,7 @@
 # US-11 y US-15 Eliminar una actividad con reservas: 3.1 a 3.14
 # Seguridad de la sesion: 4.1 y 4.2
 # Limpieza de datos de prueba: 5.1 a 5.3
+# Perfil y cambio de contrasena: 6.1 a 6.15.
 ############################################################
 
 @baseUrl = http://localhost:5000/api
@@ -395,3 +396,103 @@ Authorization: Bearer {{loginOrg.response.body.$.token}}
 ### 5.3 Lo que queda de las pruebas del organizador QA -> esperado 200: actividades "QA ..." de los archivos 1 y 2 para borrar desde el panel
 GET {{baseUrl}}/actividades/mis-actividades
 Authorization: Bearer {{loginOrg.response.body.$.token}}
+
+############################################################
+# 6. PERFIL
+############################################################
+
+### 6.1 Perfil sin token -> esperado 401
+GET {{baseUrl}}/perfil
+
+### 6.2 Mi perfil -> esperado 200: RUT enmascarado (13.***.***-6 style), sin passwordHash
+GET {{baseUrl}}/perfil
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+### 6.3 Editar nombre, telefono y comuna -> esperado 200
+PUT {{baseUrl}}/perfil
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "nombre": "QA Participante Uno", "telefono": "+56 9 8765 4321", "comuna": "Providencia" }
+
+### 6.4 Telefono invalido -> esperado 400
+PUT {{baseUrl}}/perfil
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "telefono": "123" }
+
+### 6.5 Nombre vacio -> esperado 400
+PUT {{baseUrl}}/perfil
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "nombre": "   " }
+
+### 6.6 Sin cambios -> esperado 400
+PUT {{baseUrl}}/perfil
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{}
+
+### 6.7 Intentar cambiar rol, correo o RUT -> esperado 400 "No hay cambios para guardar" (esos campos se ignoran)
+PUT {{baseUrl}}/perfil
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "rol": "organizador", "email": "otro@solee.com", "rut": "11.111.111-1" }
+
+### 6.8 Contrasena actual incorrecta -> esperado 400
+PUT {{baseUrl}}/perfil/contrasena
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actual": "ClaveMala1", "nueva": "Nueva12345", "confirmar": "Nueva12345" }
+
+### 6.9 Contrasena nueva debil -> esperado 400
+PUT {{baseUrl}}/perfil/contrasena
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actual": "{{clave}}", "nueva": "abc", "confirmar": "abc" }
+
+### 6.10 Las nuevas no coinciden -> esperado 400
+PUT {{baseUrl}}/perfil/contrasena
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actual": "{{clave}}", "nueva": "Nueva12345", "confirmar": "Nueva54321" }
+
+### 6.11 Misma contrasena que la actual -> esperado 400
+PUT {{baseUrl}}/perfil/contrasena
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actual": "{{clave}}", "nueva": "{{clave}}", "confirmar": "{{clave}}" }
+
+### 6.12 Cambio valido -> esperado 200
+PUT {{baseUrl}}/perfil/contrasena
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actual": "{{clave}}", "nueva": "Nueva12345", "confirmar": "Nueva12345" }
+
+### 6.13 La clave anterior ya no sirve -> esperado 401
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "qa.part1@solee.com", "password": "{{clave}}" }
+
+### 6.14 Volver a la clave original (deja la cuenta como estaba) -> esperado 200
+PUT {{baseUrl}}/perfil/contrasena
+Content-Type: application/json
+Authorization: Bearer {{loginPart1.response.body.$.token}}
+
+{ "actual": "Nueva12345", "nueva": "{{clave}}", "confirmar": "{{clave}}" }
+
+### 6.15 Login con la clave original -> esperado 200
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "qa.part1@solee.com", "password": "{{clave}}" }
